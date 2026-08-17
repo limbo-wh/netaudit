@@ -110,6 +110,7 @@ public partial class MainWindow : Window
         SetupGraphHover();
         SetupTestsTab();
         SetupGameMode();
+        SetupGameBoost();
         SetupTray();
         Loaded += OnLoaded;
     }
@@ -420,6 +421,7 @@ public partial class MainWindow : Window
             // Загружаем железо в фоне — не блокируем старт мониторинга
             _ = LoadHardwareAsync();
             _ = CheckForUpdateAsync();
+            _ = RecoverGameBoostAsync();
 
             if (_settings.OverlayEnabled)
                 ShowOverlay();
@@ -1070,6 +1072,9 @@ public partial class MainWindow : Window
         if (!_hotkeys.Register(ctrlAlt, HotkeyManager.VkO, ToggleOverlay))
             failed.Add("Ctrl+Alt+O");
 
+        if (!_hotkeys.Register(ctrlAlt, HotkeyManager.VkB, () => _ = ToggleGameBoostAsync()))
+            failed.Add("Ctrl+Alt+B");
+
         // Мышью оверлей не подвинуть — он сквозной, поэтому углы только хоткеями
         RegisterCorner(HotkeyManager.Vk1, 1, "Ctrl+Alt+1", failed);
         RegisterCorner(HotkeyManager.Vk2, 2, "Ctrl+Alt+2", failed);
@@ -1320,6 +1325,7 @@ public partial class MainWindow : Window
 
         _uiCts.Cancel();
         _testCts?.Cancel();
+        if (_gameBoost.Active) { try { await _gameBoost.RevertAsync(); } catch { } }
         ShutdownGameMode();
         ShutdownTray();
         _hotkeys.Dispose();

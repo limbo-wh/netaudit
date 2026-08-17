@@ -82,13 +82,6 @@ public partial class SettingsWindow : Window
         ChkOvCfPing.IsChecked = _settings.OvShowCfPing;
         ChkOvCfLoss.IsChecked = _settings.OvShowCfLoss;
 
-        // Игровой режим
-        ChkGameMode.IsChecked        = _settings.GameModeEnabled;
-        ChkGamePriority.IsChecked    = _settings.GameModeLowerPriority;
-        ChkGameSlowMetrics.IsChecked = _settings.GameModeSlowMetrics;
-        ChkGameQuietLog.IsChecked    = _settings.GameModeQuietLog;
-        UpdateGameModeAvailability();
-
         // Трей и автозапуск
         ChkTray.IsChecked            = _settings.TrayEnabled;
         ChkMinimizeToTray.IsChecked  = _settings.MinimizeToTray;
@@ -115,15 +108,6 @@ public partial class SettingsWindow : Window
             : $"В автозагрузке: {cmd}";
     }
 
-    /// <summary>Подпункты имеют смысл только при включённом режиме — иначе они вводят в заблуждение.</summary>
-    private void UpdateGameModeAvailability()
-    {
-        bool on = ChkGameMode.IsChecked == true;
-        ChkGamePriority.IsEnabled    = on;
-        ChkGameSlowMetrics.IsEnabled = on;
-        ChkGameQuietLog.IsEnabled    = on;
-    }
-
     // ── Мгновенное применение ─────────────────────────────────────────────
 
     /// <summary>
@@ -139,7 +123,6 @@ public partial class SettingsWindow : Window
             ChkOverlayEnabled,
             ChkOvFps, ChkOvCpu, ChkOvGpu, ChkOvRam, ChkOvNetRx, ChkOvNetTx,
             ChkOvGwPing, ChkOvGwLoss, ChkOvCfPing, ChkOvCfLoss,
-            ChkGameMode, ChkGamePriority, ChkGameSlowMetrics, ChkGameQuietLog,
             ChkTray, ChkMinimizeToTray, ChkCloseToTray, ChkAutoStart, ChkStartMinimized,
         ];
 
@@ -154,8 +137,6 @@ public partial class SettingsWindow : Window
 
     private void OnControlChanged(object sender, RoutedEventArgs e)
     {
-        if (ReferenceEquals(sender, ChkGameMode)) UpdateGameModeAvailability();
-
         // Автозапуск живёт в реестре, а не в settings.json, поэтому его пишем отдельно
         if (ReferenceEquals(sender, ChkAutoStart) || ReferenceEquals(sender, ChkStartMinimized))
             ApplyAutoStart();
@@ -254,11 +235,6 @@ public partial class SettingsWindow : Window
         _settings.OvShowGwLoss = ChkOvGwLoss.IsChecked == true;
         _settings.OvShowCfPing = ChkOvCfPing.IsChecked == true;
         _settings.OvShowCfLoss = ChkOvCfLoss.IsChecked == true;
-
-        _settings.GameModeEnabled       = ChkGameMode.IsChecked == true;
-        _settings.GameModeLowerPriority = ChkGamePriority.IsChecked == true;
-        _settings.GameModeSlowMetrics   = ChkGameSlowMetrics.IsChecked == true;
-        _settings.GameModeQuietLog      = ChkGameQuietLog.IsChecked == true;
 
         _settings.TrayEnabled    = ChkTray.IsChecked == true;
         _settings.MinimizeToTray = ChkMinimizeToTray.IsChecked == true;

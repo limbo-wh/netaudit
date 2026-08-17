@@ -27,6 +27,7 @@ public sealed class HotkeyManager : IDisposable
 
     // Виртуальные коды клавиш
     public const uint VkO = 0x4F;
+    public const uint VkB = 0x42;
     public const uint Vk1 = 0x31;
     public const uint Vk2 = 0x32;
     public const uint Vk3 = 0x33;
