@@ -49,6 +49,13 @@ public sealed class AppSettings
     public bool GameModeSlowMetrics   { get; set; } = true;
     /// <summary>Не писать строки пинга в лог во время игры — только потери и спайки.</summary>
     public bool GameModeQuietLog      { get; set; } = true;
+    /// <summary>
+    /// Процессы (без .exe), которые НЕ считать игрой, даже если они на весь экран —
+    /// например, плеер или редактор. Проверяется по имени из GameModeState.ProcessName.
+    /// </summary>
+    public List<string> GameModeExcludedProcesses { get; set; } = [];
+    /// <summary>Баллон в трее при серии потерь пинга, пока идёт игра.</summary>
+    public bool GameModeLossAlerts { get; set; } = true;
 
     // ── Разгон перед игрой (Game Boost) ─────────────────────────────────────
     public bool GameBoostPowerPlan     { get; set; } = true;
@@ -58,6 +65,16 @@ public sealed class AppSettings
     public bool GameBoostGamePriority  { get; set; } = true;
     /// <summary>Имена процессов (без .exe), которые разгон закрывает при включении.</summary>
     public List<string> GameBoostCloseApps { get; set; } = [];
+
+    // ── Хоткеи ────────────────────────────────────────────────────────────
+    // Модификатор всегда Ctrl+Alt (см. HotkeyManager) — настраивается только клавиша.
+    // Значения — виртуальные коды клавиш Windows, для A-Z и 0-9 совпадают с ASCII.
+    public uint HotkeyOverlayVk { get; set; } = 0x4F; // O
+    public uint HotkeyBoostVk   { get; set; } = 0x42; // B
+    public uint HotkeyCorner1Vk { get; set; } = 0x31; // 1
+    public uint HotkeyCorner2Vk { get; set; } = 0x32; // 2
+    public uint HotkeyCorner3Vk { get; set; } = 0x33; // 3
+    public uint HotkeyCorner4Vk { get; set; } = 0x34; // 4
 
     // ── Трей и автозапуск ──────────────────────────────────────────────────
     /// <summary>Показывать значок в области уведомлений.</summary>
@@ -112,10 +129,12 @@ public sealed class AppSettings
         OvShowGwLoss = s.OvShowGwLoss;
         OvShowCfLoss = s.OvShowCfLoss;
 
-        GameModeEnabled       = s.GameModeEnabled;
-        GameModeLowerPriority = s.GameModeLowerPriority;
-        GameModeSlowMetrics   = s.GameModeSlowMetrics;
-        GameModeQuietLog      = s.GameModeQuietLog;
+        GameModeEnabled           = s.GameModeEnabled;
+        GameModeLowerPriority     = s.GameModeLowerPriority;
+        GameModeSlowMetrics       = s.GameModeSlowMetrics;
+        GameModeQuietLog          = s.GameModeQuietLog;
+        GameModeExcludedProcesses = [.. s.GameModeExcludedProcesses];
+        GameModeLossAlerts        = s.GameModeLossAlerts;
 
         GameBoostPowerPlan     = s.GameBoostPowerPlan;
         GameBoostMuteNotify    = s.GameBoostMuteNotify;
@@ -123,6 +142,13 @@ public sealed class AppSettings
         GameBoostStopServices  = s.GameBoostStopServices;
         GameBoostGamePriority  = s.GameBoostGamePriority;
         GameBoostCloseApps     = [.. s.GameBoostCloseApps];
+
+        HotkeyOverlayVk = s.HotkeyOverlayVk;
+        HotkeyBoostVk   = s.HotkeyBoostVk;
+        HotkeyCorner1Vk = s.HotkeyCorner1Vk;
+        HotkeyCorner2Vk = s.HotkeyCorner2Vk;
+        HotkeyCorner3Vk = s.HotkeyCorner3Vk;
+        HotkeyCorner4Vk = s.HotkeyCorner4Vk;
 
         TrayEnabled    = s.TrayEnabled;
         MinimizeToTray = s.MinimizeToTray;

@@ -519,6 +519,13 @@ public partial class MainWindow : Window
             AppendEventLog($"{host}  ✓ соединение восстановлено (было {prev} потерь подряд)", BrushGreen);
         else if (!success && consecutive is 3 or 5 or 10 || (consecutive > 10 && consecutive % 10 == 0))
             AppendEventLog($"{host}  ⚠ {consecutive} потерь подряд", BrushRed);
+
+        // Баллон только в игре и только один раз за серию (consecutive растёт монотонно,
+        // ==5 сработает ровно один раз до следующего успешного ответа). Пока открыто
+        // окно, потери и так видны в логе — баллон нужен именно когда NetAudit свёрнут
+        if (!success && consecutive == 5 && _gameMode && _settings.GameModeLossAlerts)
+            _tray?.ShowBalloon("NetAudit", $"{host}: 5 потерь подряд во время игры", warning: true);
+
         prev = consecutive;
     }
 
@@ -901,6 +908,7 @@ public partial class MainWindow : Window
         ApplyLogVisibility();
         ApplyGraphVisibility();
         ApplyGameModeSettings();
+        RebindHotkeys();
 
         // Счётчик кадров держит сеанс ETW — поднимаем и гасим его вслед за галочкой
         _sysScheduler?.SetFpsEnabled(_settings.OvShowFps);
@@ -1065,32 +1073,38 @@ public partial class MainWindow : Window
     {
         base.OnSourceInitialized(e);
         _hotkeys.Attach(this);
+        RebindHotkeys();
+    }
 
+    /// <summary>
+    /// (Пере)регистрирует все шесть хоткеев по текущим настройкам. Вызывается при
+    /// старте и повторно из <see cref="ApplyAllSettings"/> — смена комбинации в
+    /// настройках действует сразу, без перезапуска NetAudit.
+    /// </summary>
+    private void RebindHotkeys()
+    {
         const uint ctrlAlt = HotkeyManager.ModControl | HotkeyManager.ModAlt;
-        var failed = new System.Collections.Generic.List<string>();
+        var failed = new List<string>();
 
-        if (!_hotkeys.Register(ctrlAlt, HotkeyManager.VkO, ToggleOverlay))
-            failed.Add("Ctrl+Alt+O");
+        void Bind(string slot, uint vk, Action action)
+        {
+            if (!_hotkeys.Bind(slot, ctrlAlt, vk, action))
+                failed.Add(HotkeyLabel(vk));
+        }
 
-        if (!_hotkeys.Register(ctrlAlt, HotkeyManager.VkB, () => _ = ToggleGameBoostAsync()))
-            failed.Add("Ctrl+Alt+B");
-
+        Bind("overlay", _settings.HotkeyOverlayVk, ToggleOverlay);
+        Bind("boost",   _settings.HotkeyBoostVk,   () => _ = ToggleGameBoostAsync());
         // Мышью оверлей не подвинуть — он сквозной, поэтому углы только хоткеями
-        RegisterCorner(HotkeyManager.Vk1, 1, "Ctrl+Alt+1", failed);
-        RegisterCorner(HotkeyManager.Vk2, 2, "Ctrl+Alt+2", failed);
-        RegisterCorner(HotkeyManager.Vk3, 3, "Ctrl+Alt+3", failed);
-        RegisterCorner(HotkeyManager.Vk4, 4, "Ctrl+Alt+4", failed);
+        Bind("corner1", _settings.HotkeyCorner1Vk, () => _overlay?.SnapToCorner(1));
+        Bind("corner2", _settings.HotkeyCorner2Vk, () => _overlay?.SnapToCorner(2));
+        Bind("corner3", _settings.HotkeyCorner3Vk, () => _overlay?.SnapToCorner(3));
+        Bind("corner4", _settings.HotkeyCorner4Vk, () => _overlay?.SnapToCorner(4));
 
         if (failed.Count > 0)
             AppendEventLog($"⚠ Хоткеи заняты другой программой: {string.Join(", ", failed)}", BrushYellow);
     }
 
-    private void RegisterCorner(uint vk, int corner, string label, System.Collections.Generic.List<string> failed)
-    {
-        if (!_hotkeys.Register(HotkeyManager.ModControl | HotkeyManager.ModAlt, vk,
-                               () => _overlay?.SnapToCorner(corner)))
-            failed.Add(label);
-    }
+    private static string HotkeyLabel(uint vk) => $"Ctrl+Alt+{(char)vk}";
 
     // ── Оверлей ──────────────────────────────────────────────────────────
 
