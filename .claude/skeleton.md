@@ -23,9 +23,14 @@ app_lan/                                  ← корень git-репозито�
 └── NetAudit/
     ├── NetAudit.slnx
     ├── version.json                      манифест обновления: version/notes/downloadUrl/sha256
-    ├── release.ps1                       единственный скрипт сборки: publish → (опц. подпись) → zip → SHA-256 → version.json
+    ├── release.ps1                       сборка: publish → (опц. подпись) → zip → установщик → SHA-256 → version.json
     ├── sign-setup.ps1                    создание сертификата подписи (для -Sign, узкий круг машин)
     ├── trust-cert.ps1                    импорт сертификата в доверенные (только при -Sign)
+    ├── installer/
+    │   ├── NetAudit.iss                  скрипт Inno Setup: Program Files, ярлыки, удаление
+    │   ├── register-task.ps1             задача в Планировщике (RunLevel=Highest) — FPS без UAC
+    │   ├── unregister-task.ps1           снятие задачи при удалении
+    │   └── pre-uninstall.ps1             гарантированно закрывает процесс перед удалением файлов
     ├── dist/                             артефакты сборки, не версионируются
     │
     ├── NetAudit.Core/                    измерения и диагностика, без UI
