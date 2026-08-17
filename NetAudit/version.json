@@ -1,6 +1,6 @@
 {
-  "version": "1.0.0",
-  "notes": "Первый релиз",
-  "downloadUrl": "https://github.com/limbo-wh/netaudit/releases/download/v1.0.0/NetAudit-v1.0.0-win-x64.zip",
-  "sha256": ""
+    "version":  "1.0.0",
+    "notes":  "Первый релиз: мониторинг сети, игровой оверлей с FPS, игровой режим, вкладка тестов (скорость/bufferbloat, DNS, трассировка, MTU, железо), сброс сети, трей, автозапуск, автообновление",
+    "downloadUrl":  "https://github.com/limbo-wh/netaudit/releases/download/v1.0.0/NetAudit-v1.0.0-win-x64.zip",
+    "sha256":  "02EDEBC00BC969405524DD9C4EAB24CA9A551660A49CF45A642763D1ACD66516"
 }
