@@ -441,8 +441,19 @@ public partial class MainWindow
         long matched = _sysScheduler?.FpsPresentsMatched ?? 0;
         Emit(TestLine.Empty);
         Emit(TestLine.Dim($"Диагностика: событий ETW получено {seen}, из них кадров опознано {matched}."));
+
         if (seen > 0 && matched == 0)
+        {
             Emit(TestLine.Warn("События идут, но ни одно не опознано как кадр — похоже, сломалось распознавание имён."));
+        }
+        else if (_sysScheduler?.FpsLooksDead == true)
+        {
+            Emit(TestLine.Bad("Сеанс поднят, но не пришло ни одного события — счётчик мёртв."));
+            Emit(TestLine.Dim("Обычная причина: в системе остался сеанс трассировки от предыдущего запуска,"));
+            Emit(TestLine.Dim("который не был закрыт штатно (падение или снятие через диспетчер задач)."));
+            Emit(TestLine.Dim("Приложение снимает такой сеанс само при старте, но если это не помогло —"));
+            Emit(TestLine.Dim("перезапустите NetAudit, а в крайнем случае перезагрузите Windows."));
+        }
     }
 
     /// <summary>Перезапуск с повышением прав. Настройки уже на диске, терять нечего.</summary>

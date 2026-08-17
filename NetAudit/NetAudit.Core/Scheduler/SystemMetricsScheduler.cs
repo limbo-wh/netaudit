@@ -43,6 +43,9 @@ public sealed class SystemMetricsScheduler : IAsyncDisposable
     public long FpsEventsSeen      => _fpsProbe.EventsSeen;
     public long FpsPresentsMatched => _fpsProbe.PresentsMatched;
 
+    /// <summary>Сеанс поднят, но событий нет — признак поломки, а не отсутствия игры.</summary>
+    public bool FpsLooksDead => _fpsProbe.LooksDead;
+
     /// <summary>
     /// Включить или выключить счётчик FPS. Сеанс ETW поднимается только по запросу:
     /// держать его ради выключенной строки в оверлее незачем.

@@ -49,6 +49,7 @@ public sealed class FpsProbe : IDisposable
     // разрешение имён событий, эти цифры сразу покажут это, а не оставят гадать
     private long _eventsSeen;
     private long _presentsMatched;
+    private long _startedAt;
 
     /// <summary>Счётчик работает и события идут.</summary>
     public bool Available { get; private set; }
@@ -61,6 +62,18 @@ public sealed class FpsProbe : IDisposable
 
     /// <summary>Из них опознано как начало кадра (Present).</summary>
     public long PresentsMatched => Interlocked.Read(ref _presentsMatched);
+
+    /// <summary>
+    /// Сеанс поднят, но за разумное время не пришло ни одного события. Это отдельное
+    /// состояние, а не «работает»: ровно так выглядел баг с осиротевшим сеансом —
+    /// формально всё в порядке, фактически счётчик мёртв. Даже на пустом рабочем
+    /// столе DWM рисует и события идут, так что полная тишина всегда означает поломку.
+    /// </summary>
+    public bool LooksDead =>
+        Available
+        && _startedAt != 0
+        && Stopwatch.GetElapsedTime(_startedAt).TotalSeconds > 15
+        && Interlocked.Read(ref _eventsSeen) == 0;
 
     private sealed class Counter
     {
@@ -100,8 +113,23 @@ public sealed class FpsProbe : IDisposable
 
         try
         {
-            // StopOnDispose закрывает сеанс вместе с приложением. Без этого
-            // сеанс ETW переживает процесс и остаётся висеть в системе
+            // Обязательно ДО создания своего сеанса: снять осиротевший с тем же именем.
+            //
+            // Сеансы ETW живут в ядре и переживают породивший их процесс. StopOnDispose
+            // спасает только при штатном завершении — при аварийном падении, убийстве
+            // через диспетчер задач или жёстком выключении сеанс остаётся висеть.
+            // Дальше начинается самое неприятное: следующий запуск создаёт сеанс с уже
+            // занятым именем, ошибки при этом нет, Available становится true, а события
+            // в новый Process() не приходят никогда — счётчик молча показывает прочерк,
+            // и так до перезагрузки Windows.
+            //
+            // Именно этим объяснялось «FPS работал, а потом навсегда пропал»: проверено
+            // 2026-08-17 — после Stop-Process сеанс NetAudit-FPS остался в системе,
+            // и все последующие запуски приложения кадров не считали. Как только
+            // осиротевший сеанс был снят вручную, счётчик заработал с первого запуска.
+            StopStaleSession();
+
+            // StopOnDispose закрывает сеанс вместе с приложением при штатном выходе
             _session = new TraceEventSession(SessionName) { StopOnDispose = true };
 
             // Оба провайдера отдают почти исключительно события кадров, поэтому
@@ -133,6 +161,7 @@ public sealed class FpsProbe : IDisposable
 
             Available = true;
             Status    = "работает";
+            _startedAt = Stopwatch.GetTimestamp();
         }
         catch (UnauthorizedAccessException)
         {
@@ -143,6 +172,31 @@ public sealed class FpsProbe : IDisposable
         {
             Status = $"не удалось запустить: {ex.Message}";
             Cleanup();
+        }
+    }
+
+    /// <summary>
+    /// Снимает сеанс ETW, оставшийся от предыдущего, аварийно завершённого запуска.
+    /// Отсутствие такого сеанса — нормальный и самый частый случай, поэтому «не нашёл»
+    /// не считается ошибкой.
+    /// </summary>
+    private static void StopStaleSession()
+    {
+        try
+        {
+            // Быстрая проверка, чтобы не ловить исключение на каждом штатном запуске
+            if (!TraceEventSession.GetActiveSessionNames()
+                    .Any(n => n.Equals(SessionName, StringComparison.OrdinalIgnoreCase)))
+                return;
+
+            // Attach подключается к уже существующему сеансу, Stop его закрывает
+            using var stale = new TraceEventSession(SessionName, TraceEventSessionOptions.Attach);
+            stale.Stop();
+        }
+        catch
+        {
+            // Не смогли снять — не беда: попытка создать свой сеанс ниже либо
+            // всё равно сработает, либо честно сообщит об ошибке в Status
         }
     }
 
@@ -250,6 +304,7 @@ public sealed class FpsProbe : IDisposable
         _counters.Clear();
         Interlocked.Exchange(ref _eventsSeen, 0);
         Interlocked.Exchange(ref _presentsMatched, 0);
+        Interlocked.Exchange(ref _startedAt, 0);
         Status = "выключен";
     }
 

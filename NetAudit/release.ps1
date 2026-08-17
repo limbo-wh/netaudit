@@ -147,9 +147,41 @@ $sizeMb = [math]::Round((Get-Item $zipPath).Length / 1MB, 1)
 Write-Host "  $zipPath  ($sizeMb МБ)" -ForegroundColor Green
 Write-Host "  SHA-256: $sha"
 
-# ── 5. version.json ───────────────────────────────────────────────────────
+# ── 5. Установщик ─────────────────────────────────────────────────────────
+# Собирается поверх уже опубликованной папки $outDir. Нужен не только ради
+# «приличного вида»: только установщик может один раз, под правами администратора,
+# создать задачу в Планировщике, которая потом запускает NetAudit с повышенными
+# правами без запроса UAC при каждом старте — без этого счётчик FPS требует
+# подтверждения каждый раз (см. installer\register-task.ps1)
 Write-Host ""
-Write-Host "[5/5] version.json..." -ForegroundColor Cyan
+Write-Host "[5/6] Установщик..." -ForegroundColor Cyan
+
+$setupPath = $null
+$iscc = @(
+    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+    "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+    "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+if (-not $iscc) {
+    Write-Host "  Inno Setup не найден — установщик пропущен." -ForegroundColor Yellow
+    Write-Host "  Поставить: winget install --id JRSoftware.InnoSetup" -ForegroundColor Yellow
+} else {
+    & $iscc "/DMyAppVersion=$Version" (Join-Path $root "installer\NetAudit.iss") | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        $setupPath = Join-Path $distDir "NetAudit-Setup-v$Version.exe"
+        $setupSha  = (Get-FileHash $setupPath -Algorithm SHA256).Hash
+        $setupMb   = [math]::Round((Get-Item $setupPath).Length / 1MB, 1)
+        Write-Host "  $setupPath  ($setupMb МБ)" -ForegroundColor Green
+        Write-Host "  SHA-256: $setupSha"
+    } else {
+        Write-Host "  Сборка установщика не удалась (код $LASTEXITCODE)." -ForegroundColor Yellow
+    }
+}
+
+# ── 6. version.json ───────────────────────────────────────────────────────
+Write-Host ""
+Write-Host "[6/6] version.json..." -ForegroundColor Cyan
 
 $downloadUrl = "https://github.com/$Repo/releases/download/v$Version/$outName-$rid.zip"
 
@@ -168,7 +200,12 @@ Write-Host "  обновлён $versionFile" -ForegroundColor Green
 Write-Host ""
 Write-Host "Дальше:" -ForegroundColor Cyan
 Write-Host "  1. git add -A; git commit -m ""Релиз $Version""; git push"
-Write-Host "  2. gh release create v$Version ""$zipPath"" --title ""NetAudit $Version"" --notes ""$Notes"""
+if ($setupPath) {
+    Write-Host "  2. gh release create v$Version ""$setupPath"" ""$zipPath"" --title ""NetAudit $Version"" --notes ""$Notes"""
+    Write-Host "     (установщик первым — GitHub показывает его верхним в списке файлов)"
+} else {
+    Write-Host "  2. gh release create v$Version ""$zipPath"" --title ""NetAudit $Version"" --notes ""$Notes"""
+}
 Write-Host ""
 Write-Host "  version.json должен лежать в ветке по адресу, указанном в настройках"
 Write-Host "  приложения (UpdateCheckUrl). Ссылка на сырой файл выглядит так:"
