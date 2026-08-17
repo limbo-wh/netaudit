@@ -1,6 +1,6 @@
 {
-    "version":  "1.0.1",
-    "notes":  "Исправлен счётчик FPS (не считал кадры из-за нерезолвленных имён событий ETW) и блокировка install.bat Application Control\u0027ом — установщик заменён на создание ярлыка внутри самого приложения",
-    "downloadUrl":  "https://github.com/limbo-wh/netaudit/releases/download/v1.0.1/NetAudit-v1.0.1-win-x64.zip",
-    "sha256":  "8199C558BDAF50DF70C4FE0462FFDAA7A1EABF1167A627D6EBEADB51F7AFD681"
+    "version":  "1.0.2",
+    "notes":  "Версия сборки больше не зависала на 1.0.0 после обновления (AssemblyVersion/FileVersion были захардкожены в csproj) — заголовок окна и проверка обновлений теперь видят настоящую версию. Обновление также чистит папку от файлов старых релизов вместо копирования поверх. Уведомление о новой версии дублируется всплывающим сообщением в трее.",
+    "downloadUrl":  "https://github.com/limbo-wh/netaudit/releases/download/v1.0.2/NetAudit-v1.0.2-win-x64.zip",
+    "sha256":  "4C26FEF085A316F4D717916E00054FE47290F292F7674C9F56034712E1EDB075"
 }

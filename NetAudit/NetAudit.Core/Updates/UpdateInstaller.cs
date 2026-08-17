@@ -158,6 +158,13 @@ public sealed class UpdateInstaller
         sb.AppendLine("Copy-Item -Path (Join-Path $to '*') -Destination $backup -Recurse -Force -ErrorAction SilentlyContinue");
         sb.AppendLine();
         sb.AppendLine("try {");
+        // Сначала чистим папку, потом копируем новую версию целиком. Раньше файлы
+        // просто копировались поверх — и всё, чего в новом релизе больше нет
+        // (например, удалённый install.bat), так и оставалось лежать на диске
+        // после «обновления». Пользовательские данные это не задевает: они
+        // в %LOCALAPPDATA%\NetAudit\, отдельно от папки установки
+        sb.AppendLine("  W 'Удаляю старые файлы…'");
+        sb.AppendLine("  Get-ChildItem -Path $to -Force | Remove-Item -Recurse -Force -ErrorAction Stop");
         sb.AppendLine("  W 'Копирую новые файлы…'");
         sb.AppendLine("  Copy-Item -Path (Join-Path $from '*') -Destination $to -Recurse -Force");
         sb.AppendLine("  W 'Готово'");
