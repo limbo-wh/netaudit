@@ -1,0 +1,260 @@
+﻿<Window x:Class="NetAudit.App.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Настройки — NetAudit" Height="720" Width="440"
+        ResizeMode="NoResize" WindowStartupLocation="CenterOwner"
+        Background="#0C1611" Foreground="#D8EADF"
+        ShowInTaskbar="False">
+
+    <!-- Стили и палитра — в Theme.xaml. Локальные стили здесь держать нельзя:
+         они перекрывают шаблоны темы, и контролы возвращаются к светлым системным -->
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Секция: Лог -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+            <TextBlock Text="Лог событий" Foreground="#4FD98B"
+                       Style="{StaticResource SectionTitle}"
+                       ToolTip="Настройки журнала пингов."/>
+            <CheckBox x:Name="ChkLogEnabled" Content="Включить лог событий"
+                      ToolTip="Включает или отключает лог пингов."/>
+            <CheckBox x:Name="ChkLogImportant" Content="Только важные события (TIMEOUT и спайки)"
+                      ToolTip="Показывает только потери и аномальные задержки."/>
+        </StackPanel>
+
+        <Border Grid.Row="1" Height="1" Background="#23402F" Margin="0,0,0,12"/>
+
+        <!-- Секция: Графики -->
+        <StackPanel Grid.Row="2" Margin="0,0,0,12">
+            <TextBlock Text="Графики" Foreground="#4FD98B"
+                       Style="{StaticResource SectionTitle}"
+                       ToolTip="Выберите, какие графики отображать."/>
+            <UniformGrid Rows="1" Columns="2" Margin="0,4,0,0">
+                <StackPanel Margin="0,0,12,0">
+                    <TextBlock Text="Пинг" Foreground="#5C7A69" FontSize="11" Margin="0,0,0,2"/>
+                    <CheckBox x:Name="ChkShowGw"  Content="Шлюз / Роутер"
+                              ToolTip="RTT до вашего роутера."/>
+                    <CheckBox x:Name="ChkShowCf"  Content="Cloudflare 1.1.1.1"
+                              ToolTip="RTT до 1.1.1.1."/>
+                </StackPanel>
+                <StackPanel>
+                    <TextBlock Text="Система" Foreground="#5C7A69" FontSize="11" Margin="0,0,0,2"/>
+                    <CheckBox x:Name="ChkShowNet" Content="Скорость сети (МБ/с)"
+                              ToolTip="Входящий и исходящий трафик."/>
+                    <CheckBox x:Name="ChkShowCpu" Content="Загрузка CPU (%)"
+                              ToolTip="Суммарная загрузка всех ядер."/>
+                    <CheckBox x:Name="ChkShowRam" Content="Использование RAM (ГБ)"
+                              ToolTip="Объём занятой оперативной памяти."/>
+                </StackPanel>
+            </UniformGrid>
+        </StackPanel>
+
+        <Border Grid.Row="3" Height="1" Background="#23402F" Margin="0,0,0,12"/>
+
+        <!-- Секция: Оверлей -->
+        <StackPanel Grid.Row="4" Margin="0,0,0,12">
+            <TextBlock Text="Игровой оверлей" Foreground="#4FD98B"
+                       Style="{StaticResource SectionTitle}"
+                       ToolTip="Полупрозрачная панель поверх всех окон. Полностью клик-сквозная — не мешает играм. Позиция задаётся здесь."/>
+
+            <CheckBox x:Name="ChkOverlayEnabled" Content="Включить оверлей"
+                      ToolTip="Показывает панель с метриками поверх всех окон (borderless/windowed режим)."/>
+
+            <!-- Прозрачность -->
+            <Grid Margin="0,8,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="100"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="38"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Прозрачность" Style="{StaticResource RowLabel}"
+                           ToolTip="100% = непрозрачный, 15% = почти невидимый."/>
+                <Slider x:Name="SliderOpacity" Grid.Column="1"
+                        Minimum="0.15" Maximum="1.0" SmallChange="0.05"
+                        TickFrequency="0.05" IsSnapToTickEnabled="True"
+                        VerticalAlignment="Center" Margin="8,0"
+                        ValueChanged="OnOpacityChanged"
+                        ToolTip="Прозрачность оверлея."/>
+                <TextBlock x:Name="OpacityLabel" Grid.Column="2"
+                           VerticalAlignment="Center" HorizontalAlignment="Right"
+                           Foreground="#4FD98B" FontSize="11"/>
+            </Grid>
+
+            <!-- Размер шрифта -->
+            <Grid Margin="0,8,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="100"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Размер текста" Style="{StaticResource RowLabel}"
+                           ToolTip="Размер шрифта метрик в оверлее."/>
+                <ComboBox x:Name="CmbFontSize" Grid.Column="1" Margin="8,0,0,0"
+                          Background="#23402F" Foreground="#D8EADF" BorderBrush="#2C5039"
+                          ToolTip="Размер шрифта в оверлее.">
+                    <ComboBoxItem Content="Мелкий (11)"      Tag="11"/>
+                    <ComboBoxItem Content="Средний (13)"     Tag="13"/>
+                    <ComboBoxItem Content="Крупный (15)"     Tag="15"/>
+                    <ComboBoxItem Content="Очень крупный (18)" Tag="18"/>
+                </ComboBox>
+            </Grid>
+
+            <!-- Положение -->
+            <TextBlock Text="Положение оверлея" Foreground="#5C7A69" FontSize="11"
+                       Margin="0,10,0,4"
+                       ToolTip="Оверлей нельзя перетаскивать мышью (он полностью клик-сквозный). Задайте положение здесь."/>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="100"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="50"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="X (отступ слева)" Style="{StaticResource RowLabel}" FontSize="11"
+                           ToolTip="Расстояние от левого края экрана в пикселях."/>
+                <Slider x:Name="SliderOverlayX" Grid.Column="1"
+                        Minimum="0" Maximum="1800" SmallChange="10" LargeChange="100"
+                        VerticalAlignment="Center" Margin="8,0"
+                        ValueChanged="OnOverlayXChanged"
+                        ToolTip="Горизонтальная позиция оверлея."/>
+                <TextBlock x:Name="OverlayXLabel" Grid.Column="2"
+                           VerticalAlignment="Center" HorizontalAlignment="Right"
+                           Foreground="#4FD98B" FontSize="11"/>
+            </Grid>
+            <Grid Margin="0,4,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="100"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="50"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Y (отступ сверху)" Style="{StaticResource RowLabel}" FontSize="11"
+                           ToolTip="Расстояние от верхнего края экрана в пикселях."/>
+                <Slider x:Name="SliderOverlayY" Grid.Column="1"
+                        Minimum="0" Maximum="1000" SmallChange="10" LargeChange="100"
+                        VerticalAlignment="Center" Margin="8,0"
+                        ValueChanged="OnOverlayYChanged"
+                        ToolTip="Вертикальная позиция оверлея."/>
+                <TextBlock x:Name="OverlayYLabel" Grid.Column="2"
+                           VerticalAlignment="Center" HorizontalAlignment="Right"
+                           Foreground="#4FD98B" FontSize="11"/>
+            </Grid>
+
+            <!-- Хоткеи -->
+            <TextBlock Text="Горячие клавиши" Foreground="#5C7A69" FontSize="11"
+                       Margin="0,10,0,2"
+                       ToolTip="Работают глобально — в том числе когда фокус в игре."/>
+            <Border Background="#111F18" CornerRadius="4" Padding="8,6">
+                <StackPanel>
+                    <TextBlock Foreground="#B6CDBF" FontSize="11" Margin="0,0,0,2"
+                               Text="Ctrl + Alt + O  —  показать / скрыть оверлей"/>
+                    <TextBlock Foreground="#B6CDBF" FontSize="11"
+                               Text="Ctrl + Alt + 1…4  —  в угол экрана (1 ЛВ, 2 ПВ, 3 ЛН, 4 ПН)"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Метрики -->
+            <TextBlock Text="Метрики" Foreground="#5C7A69" FontSize="11"
+                       Margin="0,10,0,2"
+                       ToolTip="Выберите, какие метрики показывать."/>
+            <UniformGrid Rows="1" Columns="2">
+                <StackPanel Margin="0,0,12,0">
+                    <CheckBox x:Name="ChkOvFps"   Content="Кадры (FPS)"
+                              ToolTip="Первая строка оверлея. Кадры считаются по событиям Windows (ETW), без вмешательства в процесс игры — но для этого нужны права администратора. Без них строка показывает прочерк."/>
+                    <CheckBox x:Name="ChkOvCpu"   Content="Процессор (%)"
+                              ToolTip="Загрузка процессора."/>
+                    <CheckBox x:Name="ChkOvGpu"   Content="Видеокарта (%)"
+                              ToolTip="Загрузка GPU (Performance Counters)."/>
+                    <CheckBox x:Name="ChkOvRam"   Content="Память (ГБ)"
+                              ToolTip="Используемое ОЗУ."/>
+                    <CheckBox x:Name="ChkOvNetRx" Content="↓ Приём (МБ/с)"
+                              ToolTip="Входящий трафик."/>
+                    <CheckBox x:Name="ChkOvNetTx" Content="↑ Отдача (МБ/с)"
+                              ToolTip="Исходящий трафик."/>
+                </StackPanel>
+                <StackPanel>
+                    <CheckBox x:Name="ChkOvGwPing" Content="Шлюз (мс)"
+                              ToolTip="Задержка до роутера."/>
+                    <CheckBox x:Name="ChkOvGwLoss" Content="Потери до шлюза (%)"
+                              ToolTip="Доля потерянных пакетов до роутера за сессию. Растёт — виноват Wi-Fi, кабель или роутер."/>
+                    <CheckBox x:Name="ChkOvCfPing" Content="Интернет (мс)"
+                              ToolTip="Задержка до Cloudflare."/>
+                    <CheckBox x:Name="ChkOvCfLoss" Content="Потери до сети (%)"
+                              ToolTip="Доля потерянных пакетов до 1.1.1.1 за сессию. Растёт при целом шлюзе — виноват провайдер."/>
+                </StackPanel>
+            </UniformGrid>
+        </StackPanel>
+
+        <!-- Секция: Игровой режим -->
+        <StackPanel Grid.Row="5" VerticalAlignment="Top" Margin="0,0,0,12">
+            <Border Height="1" Background="#23402F" Margin="0,0,0,12"/>
+
+            <TextBlock Text="Игровой режим" Foreground="#4FD98B"
+                       Style="{StaticResource SectionTitle}"
+                       ToolTip="Пока на экране игра, NetAudit урезает собственную работу. Определяется по полноэкранному приложению на переднем плане — без вмешательства в процесс игры."/>
+
+            <TextBlock Foreground="#5C7A69" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6"
+                       Text="Частота пинга не меняется никогда: ради него приложение и работает."/>
+
+            <CheckBox x:Name="ChkGameMode" Content="Замечать запуск игры"
+                      ToolTip="Определять полноэкранное приложение на переднем плане и переходить в экономный режим. Никаких перехватов и внедрения в процесс игры — только штатные функции Windows."/>
+            <CheckBox x:Name="ChkGamePriority" Content="Понижать приоритет процесса" Margin="16,2,0,0"
+                      ToolTip="Ставит NetAudit ниже обычного приоритета, чтобы процессор в первую очередь доставался игре."/>
+            <CheckBox x:Name="ChkGameSlowMetrics" Content="Реже опрашивать метрики" Margin="16,2,0,0"
+                      ToolTip="Системные метрики раз в 2 секунды вместо секунды, Wi-Fi раз в полминуты. Оверлей обновляется реже, но эти цифры и так меняются медленно."/>
+            <CheckBox x:Name="ChkGameQuietLog" Content="В логе только потери и спайки" Margin="16,2,0,0"
+                      ToolTip="Во время игры обычные строки пинга в лог не пишутся — восемь строк в секунду всё равно никто не читает. Потери и аномальные задержки записываются как обычно."/>
+
+            <Border Height="1" Background="#23402F" Margin="0,14,0,12"/>
+
+            <!-- Трей и автозапуск -->
+            <TextBlock Text="Трей и автозапуск" Foreground="#4FD98B"
+                       Style="{StaticResource SectionTitle}"
+                       ToolTip="Значок в области уведомлений и запуск вместе с Windows."/>
+
+            <CheckBox x:Name="ChkTray" Content="Значок в области уведомлений"
+                      ToolTip="Показывать значок NetAudit в трее. В его меню — окно, оверлей, настройки и выход."/>
+            <CheckBox x:Name="ChkMinimizeToTray" Content="Сворачивать в трей" Margin="16,2,0,0"
+                      ToolTip="При сворачивании окно уходит в трей, а не в панель задач."/>
+            <CheckBox x:Name="ChkCloseToTray" Content="Крестик прячет в трей, а не закрывает" Margin="16,2,0,0"
+                      ToolTip="Мониторинг продолжается после закрытия окна. Полный выход — правый клик по значку в трее → «Выход»."/>
+
+            <CheckBox x:Name="ChkAutoStart" Content="Запускать вместе с Windows" Margin="0,8,0,0"
+                      ToolTip="Прописывает NetAudit в автозапуск текущего пользователя. Прав администратора не требует; выключить можно и через «Диспетчер задач → Автозагрузка»."/>
+            <CheckBox x:Name="ChkStartMinimized" Content="При автозапуске сразу в трей" Margin="16,2,0,0"
+                      ToolTip="Стартовать скрытым, не открывая окно. Работает только вместе со значком в трее."/>
+
+            <TextBlock x:Name="AutoStartHint" Foreground="#5C7A69" FontSize="10"
+                       TextWrapping="Wrap" Margin="0,4,0,0"/>
+        </StackPanel>
+
+        <!-- Кнопки -->
+        <Grid Grid.Row="6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                       Foreground="#5C7A69" FontSize="11" TextWrapping="Wrap"
+                       Text="Изменения применяются сразу"
+                       ToolTip="Каждое изменение применяется и сохраняется мгновенно. «Вернуть как было» откатывает всё, что вы изменили с момента открытия окна."/>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Вернуть как было" Click="OnCancel" Margin="0,0,8,0"
+                        ToolTip="Откатить все изменения, сделанные с момента открытия окна, и закрыть."/>
+                <Button Content="Готово" Click="OnSave"
+                        Background="#2C5039"
+                        ToolTip="Закрыть окно. Всё уже применено и сохранено."/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+    </ScrollViewer>
+</Window>

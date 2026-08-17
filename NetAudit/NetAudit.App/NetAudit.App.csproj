@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\NetAudit.Core\NetAudit.Core.csproj" />
+    <ProjectReference Include="..\NetAudit.Rtss\NetAudit.Rtss.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <!-- Ради NotifyIcon: своей реализации значка в трее у WPF нет, а WinForms уже
+         входит в тот же Windows Desktop Runtime, что и WPF, — размер не растёт -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>NetAudit.ico</ApplicationIcon>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Product>NetAudit</Product>
+    <Company>NetAudit</Company>
+    <Description>Мониторинг сети и системы в реальном времени</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ScottPlot.WPF" Version="5.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ApplicationIcon кладёт иконку в заголовок exe, но Window.Icon и значок
+         в трее читают её как ресурс сборки — поэтому нужны обе записи -->
+    <Resource Include="NetAudit.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      UseWindowsForms добавляет System.Drawing и System.Windows.Forms в неявные using,
+      и половина файлов перестаёт компилироваться: Brush, Application, Color, Point
+      существуют и в WPF, и в WinForms. Убираем их из неявных — WinForms нужен ровно
+      одному файлу (TrayIcon.cs), и там он подключён явно, через псевдоним.
+    -->
+    <Using Remove="System.Drawing" />
+    <Using Remove="System.Windows.Forms" />
+  </ItemGroup>
+
+  <!--
+    Автоподпись сборки НЕ включаем намеренно. Проверено 2026-08-17 на этой машине:
+    при включённом Smart App Control файл, подписанный самоподписанным сертификатом,
+    блокируется жёстче неподписанного (0 запусков из 3 против «через раз»).
+    SAC признаёт только сертификаты из своего списка и облачную репутацию,
+    а локальное доверие к сертификату он не учитывает.
+    Скрипт sign-build.ps1 оставлен на случай коммерческого сертификата.
+  -->
+
+</Project>

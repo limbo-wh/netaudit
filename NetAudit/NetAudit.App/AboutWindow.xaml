@@ -1,0 +1,90 @@
+<Window x:Class="NetAudit.App.AboutWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="О программе — NetAudit" Height="560" Width="460"
+        ResizeMode="NoResize" WindowStartupLocation="CenterOwner"
+        Background="{StaticResource BgBase}" Foreground="{StaticResource Text}"
+        ShowInTaskbar="False">
+
+    <Grid Margin="22">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Шапка -->
+        <StackPanel Grid.Row="0">
+            <TextBlock Text="NetAudit" FontSize="26" FontWeight="Bold"
+                       Foreground="{StaticResource Accent}"/>
+            <TextBlock x:Name="VersionLbl" FontSize="12" Margin="0,2,0,0"
+                       Foreground="{StaticResource TextDim}"/>
+            <TextBlock Text="Мониторинг качества сети и состояния системы в реальном времени"
+                       FontSize="12" TextWrapping="Wrap" Margin="0,10,0,0"
+                       Foreground="{StaticResource Text}"/>
+        </StackPanel>
+
+        <Border Grid.Row="1" Height="1" Margin="0,16,0,16"
+                Background="{StaticResource Line}"/>
+
+        <!-- Что умеет -->
+        <StackPanel Grid.Row="2">
+            <TextBlock Text="Возможности" Style="{StaticResource SectionTitle}"/>
+            <TextBlock Margin="0,4,0,0" FontSize="11" TextWrapping="Wrap"
+                       Foreground="{StaticResource TextDim}"
+                       Text="• Задержка, джиттер и потери до роутера и до интернета&#10;• Загрузка процессора, памяти, видеокарты и канала&#10;• Игровой оверлей поверх окна игры, клик-сквозной&#10;• Журнал событий с фильтрами и диспетчер процессов&#10;• Сведения об оборудовании и Wi-Fi"/>
+        </StackPanel>
+
+        <Border Grid.Row="3" Height="1" Margin="0,16,0,16"
+                Background="{StaticResource Line}"/>
+
+        <!-- Поддержка -->
+        <StackPanel Grid.Row="4" VerticalAlignment="Top">
+            <TextBlock Text="Поддержать разработку" Style="{StaticResource SectionTitle}"/>
+            <TextBlock Margin="0,4,0,10" FontSize="11" TextWrapping="Wrap"
+                       Foreground="{StaticResource TextDim}"
+                       Text="Программа бесплатная и делается в свободное время. Если она вам пригодилась — можно поблагодарить переводом на карту."/>
+
+            <Border Background="{StaticResource BgSurface}"
+                    BorderBrush="{StaticResource Accent}" BorderThickness="1"
+                    CornerRadius="6" Padding="14,12">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                        <TextBlock Text="Карта для перевода" FontSize="10"
+                                   Foreground="{StaticResource TextMute}"/>
+                        <TextBlock x:Name="CardLbl" Text="2204 2401 4921 5792"
+                                   FontSize="17" FontWeight="SemiBold" Margin="0,3,0,0"
+                                   Foreground="{StaticResource Accent}"
+                                   FontFamily="{StaticResource MonoFont}"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" x:Name="CopyBtn" Content="Копировать"
+                            Click="OnCopyCard" VerticalAlignment="Center" Padding="12,6"
+                            ToolTip="Скопировать номер карты в буфер обмена."/>
+                </Grid>
+            </Border>
+
+            <TextBlock x:Name="CopiedLbl" Text="Номер скопирован в буфер обмена"
+                       FontSize="11" Margin="0,7,0,0" Visibility="Hidden"
+                       Foreground="{StaticResource Good}"/>
+        </StackPanel>
+
+        <!-- Низ -->
+        <Grid Grid.Row="5" Margin="0,14,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" VerticalAlignment="Center" FontSize="10"
+                       Foreground="{StaticResource TextMute}"
+                       Text="Работает локально. Никакие данные никуда не отправляются."/>
+            <Button Grid.Column="1" Content="Закрыть" Click="OnClose" Padding="18,6"/>
+        </Grid>
+    </Grid>
+</Window>

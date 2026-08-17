@@ -1,0 +1,133 @@
+﻿<Window x:Class="NetAudit.App.OverlayWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None" AllowsTransparency="True"
+        Background="Transparent" Topmost="True"
+        ShowInTaskbar="False" SizeToContent="WidthAndHeight">
+
+    <Window.Resources>
+        <!-- Подпись метрики -->
+        <Style x:Key="OvLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#99D8EADF"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,10,0"/>
+        </Style>
+        <!-- Значение метрики -->
+        <Style x:Key="OvValue" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+    </Window.Resources>
+
+    <Border x:Name="BgBorder" CornerRadius="6"
+            BorderBrush="#554FD98B" BorderThickness="1" MinWidth="180">
+        <Border.Background>
+            <SolidColorBrush x:Name="BgBrush" Color="#EE111F18"/>
+        </Border.Background>
+
+        <!-- IsSharedSizeScope выравнивает колонку подписей по всем строкам:
+             иначе при смене размера шрифта строки разъезжаются -->
+        <StackPanel x:Name="MetricsPanel" Margin="10,7,14,8"
+                    Grid.IsSharedSizeScope="True">
+
+            <!-- FPS идёт первой строкой: во время игры это то, ради чего в оверлей смотрят -->
+            <Grid x:Name="RowFps" Margin="0,1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="OvLabelCol"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="LblFps" Text="Кадры" Style="{StaticResource OvLabel}"/>
+                <TextBlock x:Name="OvFps" Grid.Column="1" Foreground="#4FD98B"
+                           Style="{StaticResource OvValue}"/>
+            </Grid>
+
+            <Grid x:Name="RowCpu" Margin="0,1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="OvLabelCol"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="LblCpu" Text="Процессор" Style="{StaticResource OvLabel}"/>
+                <TextBlock x:Name="OvCpu" Grid.Column="1" Style="{StaticResource OvValue}"/>
+            </Grid>
+
+            <Grid x:Name="RowGpu" Margin="0,1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="OvLabelCol"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="LblGpu" Text="Видеокарта" Style="{StaticResource OvLabel}"/>
+                <TextBlock x:Name="OvGpu" Grid.Column="1" Style="{StaticResource OvValue}"/>
+            </Grid>
+
+            <Grid x:Name="RowRam" Margin="0,1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="OvLabelCol"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="LblRam" Text="Память" Style="{StaticResource OvLabel}"/>
+                <TextBlock x:Name="OvRam" Grid.Column="1" Style="{StaticResource OvValue}"/>
+            </Grid>
+
+            <Grid x:Name="RowRx" Margin="0,1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="OvLabelCol"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="LblRx" Text="↓ Приём" Style="{StaticResource OvLabel}"/>
+                <TextBlock x:Name="OvRx" Grid.Column="1" Foreground="#5CD1C0"
+                           Style="{StaticResource OvValue}"/>
+            </Grid>
+
+            <Grid x:Name="RowTx" Margin="0,1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="OvLabelCol"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="LblTx" Text="↑ Отдача" Style="{StaticResource OvLabel}"/>
+                <TextBlock x:Name="OvTx" Grid.Column="1" Foreground="#86D97A"
+                           Style="{StaticResource OvValue}"/>
+            </Grid>
+
+            <Grid x:Name="RowGw" Margin="0,1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="OvLabelCol"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="LblGw" Text="Шлюз" Style="{StaticResource OvLabel}"/>
+                <TextBlock x:Name="OvGw" Grid.Column="1" Foreground="#4FD98B"
+                           Style="{StaticResource OvValue}"/>
+            </Grid>
+
+            <Grid x:Name="RowGwLoss" Margin="0,1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="OvLabelCol"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="LblGwLoss" Text="Потери шлюз" Style="{StaticResource OvLabel}"/>
+                <TextBlock x:Name="OvGwLoss" Grid.Column="1" Style="{StaticResource OvValue}"/>
+            </Grid>
+
+            <Grid x:Name="RowCf" Margin="0,1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="OvLabelCol"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="LblCf" Text="Интернет" Style="{StaticResource OvLabel}"/>
+                <TextBlock x:Name="OvCf" Grid.Column="1" Foreground="#86D97A"
+                           Style="{StaticResource OvValue}"/>
+            </Grid>
+
+            <Grid x:Name="RowCfLoss" Margin="0,1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="OvLabelCol"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="LblCfLoss" Text="Потери сеть" Style="{StaticResource OvLabel}"/>
+                <TextBlock x:Name="OvCfLoss" Grid.Column="1" Style="{StaticResource OvValue}"/>
+            </Grid>
+
+        </StackPanel>
+    </Border>
+</Window>

@@ -1,0 +1,15 @@
+# Единый перевод строки в репозитории — LF, в рабочей копии на Windows — CRLF.
+# Без этого каждый файл, тронутый другой машиной, показывается изменённым целиком.
+* text=auto
+
+# Скрипты PowerShell читаются самим PowerShell, а не git: им нужен CRLF на диске
+*.ps1  text eol=crlf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# Двоичное — не трогать
+*.ico  binary
+*.png  binary
+*.zip  binary
+*.pfx  binary
+*.cer  binary
