@@ -23,11 +23,9 @@ app_lan/                                  ← корень git-репозито�
 └── NetAudit/
     ├── NetAudit.slnx
     ├── version.json                      манифест обновления: version/notes/downloadUrl/sha256
-    ├── release.ps1                       сборка → подпись → zip → SHA-256 → version.json
-    ├── publish.ps1                       старая сборка без контрольной суммы
-    ├── sign-setup.ps1                    создание сертификата подписи
-    ├── trust-cert.ps1                    импорт сертификата в доверенные
-    ├── install.bat / install.ps1         установщик для конечной машины
+    ├── release.ps1                       единственный скрипт сборки: publish → (опц. подпись) → zip → SHA-256 → version.json
+    ├── sign-setup.ps1                    создание сертификата подписи (для -Sign, узкий круг машин)
+    ├── trust-cert.ps1                    импорт сертификата в доверенные (только при -Sign)
     ├── dist/                             артефакты сборки, не версионируются
     │
     ├── NetAudit.Core/                    измерения и диагностика, без UI
@@ -71,6 +69,7 @@ app_lan/                                  ← корень git-репозито�
     │   ├── app.manifest                  asInvoker, PerMonitorV2
     │   ├── AppSettings.cs                %LOCALAPPDATA%\NetAudit\settings.json + Clone/CopyFrom
     │   ├── StartupManager.cs             автозапуск через HKCU\...\Run, аргумент --tray
+    │   ├── DesktopShortcut.cs            ярлык на рабочем столе через WScript.Shell, без install.bat
     │   ├── TrayIcon.cs                   NotifyIcon с меню, подсказкой и уведомлениями
     │   ├── HotkeyManager.cs              RegisterHotKey + WM_HOTKEY через HwndSource
     │   ├── MainWindow.xaml(.cs)          графики, статистика, лог, диспетчер, хоткеи

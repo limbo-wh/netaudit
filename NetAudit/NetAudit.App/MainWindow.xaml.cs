@@ -424,6 +424,12 @@ public partial class MainWindow : Window
             if (_settings.OverlayEnabled)
                 ShowOverlay();
 
+            // Один раз предлагаем ярлык на рабочем столе. Раньше это делал install.bat,
+            // но батник с меткой «из интернета» блокируется Application Control наглухо
+            // (проверено 2026-08-17), поэтому теперь ярлык создаёт сам процесс
+            if (!_settings.ShortcutOffered && !DesktopShortcut.Exists())
+                ShortcutBanner.Visibility = Visibility.Visible;
+
             _ = RunProcessPollerAsync().ContinueWith(
                     t => Dispatcher.Invoke(() =>
                         AppendEventLog($"⚠ Диспетчер процессов остановлен: {t.Exception?.GetBaseException().Message}", BrushRed)),
@@ -1178,6 +1184,30 @@ public partial class MainWindow : Window
     private void OnUpdateDismiss(object sender, RoutedEventArgs e)
     {
         UpdateBanner.Visibility = Visibility.Collapsed;
+    }
+
+    private void OnShortcutCreate(object sender, RoutedEventArgs e)
+    {
+        if (DesktopShortcut.Create(out string error))
+        {
+            AppendEventLog("✓ Ярлык на рабочем столе создан", BrushGreen);
+        }
+        else
+        {
+            MessageBox.Show(this, $"Не удалось создать ярлык:\n{error}", "NetAudit",
+                            MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+
+        _settings.ShortcutOffered = true;
+        _settings.Save();
+        ShortcutBanner.Visibility = Visibility.Collapsed;
+    }
+
+    private void OnShortcutDismiss(object sender, RoutedEventArgs e)
+    {
+        _settings.ShortcutOffered = true;
+        _settings.Save();
+        ShortcutBanner.Visibility = Visibility.Collapsed;
     }
 
     private void ApplyLogVisibility()

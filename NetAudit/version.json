@@ -1,6 +1,6 @@
 {
-    "version":  "1.0.0",
-    "notes":  "Первый релиз: мониторинг сети, игровой оверлей с FPS, игровой режим, вкладка тестов (скорость/bufferbloat, DNS, трассировка, MTU, железо), сброс сети, трей, автозапуск, автообновление",
-    "downloadUrl":  "https://github.com/limbo-wh/netaudit/releases/download/v1.0.0/NetAudit-v1.0.0-win-x64.zip",
-    "sha256":  "02EDEBC00BC969405524DD9C4EAB24CA9A551660A49CF45A642763D1ACD66516"
+    "version":  "1.0.1",
+    "notes":  "Исправлен счётчик FPS (не считал кадры из-за нерезолвленных имён событий ETW) и блокировка install.bat Application Control\u0027ом — установщик заменён на создание ярлыка внутри самого приложения",
+    "downloadUrl":  "https://github.com/limbo-wh/netaudit/releases/download/v1.0.1/NetAudit-v1.0.1-win-x64.zip",
+    "sha256":  "8199C558BDAF50DF70C4FE0462FFDAA7A1EABF1167A627D6EBEADB51F7AFD681"
 }
