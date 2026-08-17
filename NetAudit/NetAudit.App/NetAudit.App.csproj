@@ -17,9 +17,16 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>NetAudit.ico</ApplicationIcon>
+    <!-- Version — единственное место, откуда должна идти версия. AssemblyVersion и
+         FileVersion НЕ задаём явно: если их прописать константой, они намертво
+         зависают на этом числе и не подхватывают -p:Version при publish — а именно
+         AssemblyVersion читает Assembly.GetName().Version, на который опирается
+         заголовок окна и сравнение версий в UpdateChecker. Проверено на живом
+         обновлении 2026-08-17: с захардкоженным 1.0.0.0 приложение после
+         обновления на 1.0.1 продолжало считать себя версией 1.0.0 и заголовок,
+         и сравнение с version.json — то есть повторно предлагало бы то же
+         обновление по кругу. Без явных тегов SDK сам выводит оба поля из Version -->
     <Version>1.0.0</Version>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
     <Product>NetAudit</Product>
     <Company>NetAudit</Company>
     <Description>Мониторинг сети и системы в реальном времени</Description>

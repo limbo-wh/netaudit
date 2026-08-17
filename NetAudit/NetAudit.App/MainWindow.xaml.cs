@@ -1154,6 +1154,13 @@ public partial class MainWindow : Window
             UpdateBannerText.Text = $"Доступно обновление {info.Version}" +
                 (string.IsNullOrWhiteSpace(info.Notes) ? "" : $" — {info.Notes}");
             UpdateBanner.Visibility = Visibility.Visible;
+
+            // Баннер в окне никто не увидит, пока приложение свёрнуто в трей или
+            // спрятано игровым режимом — а именно так оно обычно и работает после
+            // первого запуска. Всплывающее уведомление у значка добьёт до пользователя
+            // в любом состоянии окна
+            _tray?.ShowBalloon("Доступно обновление NetAudit",
+                $"Версия {info.Version}. Двойной клик по значку → «Тесты и сервис» → «Проверить обновление».");
         });
     }
 
