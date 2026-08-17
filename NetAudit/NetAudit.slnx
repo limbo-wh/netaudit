@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="NetAudit.App/NetAudit.App.csproj" />
+  <Project Path="NetAudit.Core/NetAudit.Core.csproj" />
+  <Project Path="NetAudit.Rtss/NetAudit.Rtss.csproj" />
+</Solution>
