@@ -83,6 +83,9 @@ public partial class MainWindow
         if (_settings.GameModeLowerPriority) SetPriority(ProcessPriorityClass.BelowNormal);
         if (_sysScheduler is not null) _sysScheduler.SlowMode = _settings.GameModeSlowMetrics;
 
+        if (_gameBoost.Active && _settings.GameBoostGamePriority && _gameProcess.Length > 0)
+            _gameBoost.BoostGameProcessPriority(_gameProcess);
+
         GameModeText.Text        = _gameProcess.Length > 0
             ? $"🎮 игровой режим · {_gameProcess}"
             : "🎮 игровой режим";
@@ -130,6 +133,7 @@ public partial class MainWindow
 
         SetPriority(_normalPriority);
         if (_sysScheduler is not null) _sysScheduler.SlowMode = false;
+        _gameBoost.RestoreGameProcessPriority();
 
         GameModeBadge.Visibility = Visibility.Collapsed;
         _tray?.SetGameMode(false, "");

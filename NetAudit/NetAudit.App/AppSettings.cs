@@ -50,6 +50,15 @@ public sealed class AppSettings
     /// <summary>Не писать строки пинга в лог во время игры — только потери и спайки.</summary>
     public bool GameModeQuietLog      { get; set; } = true;
 
+    // ── Разгон перед игрой (Game Boost) ─────────────────────────────────────
+    public bool GameBoostPowerPlan     { get; set; } = true;
+    public bool GameBoostMuteNotify    { get; set; } = true;
+    public bool GameBoostVisualEffects { get; set; } = true;
+    public bool GameBoostStopServices  { get; set; } = false;
+    public bool GameBoostGamePriority  { get; set; } = true;
+    /// <summary>Имена процессов (без .exe), которые разгон закрывает при включении.</summary>
+    public List<string> GameBoostCloseApps { get; set; } = [];
+
     // ── Трей и автозапуск ──────────────────────────────────────────────────
     /// <summary>Показывать значок в области уведомлений.</summary>
     public bool TrayEnabled     { get; set; } = true;
@@ -107,6 +116,13 @@ public sealed class AppSettings
         GameModeLowerPriority = s.GameModeLowerPriority;
         GameModeSlowMetrics   = s.GameModeSlowMetrics;
         GameModeQuietLog      = s.GameModeQuietLog;
+
+        GameBoostPowerPlan     = s.GameBoostPowerPlan;
+        GameBoostMuteNotify    = s.GameBoostMuteNotify;
+        GameBoostVisualEffects = s.GameBoostVisualEffects;
+        GameBoostStopServices  = s.GameBoostStopServices;
+        GameBoostGamePriority  = s.GameBoostGamePriority;
+        GameBoostCloseApps     = [.. s.GameBoostCloseApps];
 
         TrayEnabled    = s.TrayEnabled;
         MinimizeToTray = s.MinimizeToTray;

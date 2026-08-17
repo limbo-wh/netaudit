@@ -20,10 +20,12 @@ public sealed class TrayIcon : IDisposable
     private readonly Forms.ToolStripMenuItem _showItem;
     private readonly Forms.ToolStripMenuItem _overlayItem;
     private readonly Forms.ToolStripMenuItem _gameModeItem;
+    private readonly Forms.ToolStripMenuItem _boostItem;
 
     public event Action? ShowRequested;
     public event Action? SettingsRequested;
     public event Action? OverlayToggleRequested;
+    public event Action? BoostToggleRequested;
     public event Action? ExitRequested;
 
     public TrayIcon()
@@ -31,9 +33,11 @@ public sealed class TrayIcon : IDisposable
         _showItem     = new Forms.ToolStripMenuItem("Показать окно");
         _overlayItem  = new Forms.ToolStripMenuItem("Оверлей: выключен");
         _gameModeItem = new Forms.ToolStripMenuItem("Игровой режим: нет") { Enabled = false };
+        _boostItem    = new Forms.ToolStripMenuItem("🚀 Включить разгон");
 
         _showItem.Click    += (_, _) => ShowRequested?.Invoke();
         _overlayItem.Click += (_, _) => OverlayToggleRequested?.Invoke();
+        _boostItem.Click    += (_, _) => BoostToggleRequested?.Invoke();
 
         var settingsItem = new Forms.ToolStripMenuItem("Настройки…");
         settingsItem.Click += (_, _) => SettingsRequested?.Invoke();
@@ -48,6 +52,7 @@ public sealed class TrayIcon : IDisposable
             new Forms.ToolStripSeparator(),
             _gameModeItem,
             _overlayItem,
+            _boostItem,
             new Forms.ToolStripSeparator(),
             settingsItem,
             new Forms.ToolStripSeparator(),
@@ -108,6 +113,9 @@ public sealed class TrayIcon : IDisposable
             ? (process.Length > 0 ? $"Игровой режим: {process}" : "Игровой режим: да")
             : "Игровой режим: нет";
     }
+
+    public void SetBoostState(bool active) =>
+        _boostItem.Text = active ? "⏹ Выключить разгон" : "🚀 Включить разгон";
 
     /// <summary>Короткая сводка в подсказке значка. Windows режет её на 63 символах.</summary>
     public void SetTooltip(string text)

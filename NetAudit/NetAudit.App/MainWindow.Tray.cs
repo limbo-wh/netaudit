@@ -26,6 +26,7 @@ public partial class MainWindow
         _tray.ShowRequested          += ToggleWindowFromTray;
         _tray.SettingsRequested      += OnTraySettings;
         _tray.OverlayToggleRequested += ToggleOverlay;
+        _tray.BoostToggleRequested   += () => _ = ToggleGameBoostAsync();
         _tray.ExitRequested          += ExitFromTray;
 
         _tray.Visible = true;
