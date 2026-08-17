@@ -22,7 +22,14 @@
 param(
     [Parameter(Mandatory = $true)][string]$Version,
     [string]$Notes = "",
-    [string]$Repo  = "limbo-wh/netaudit"
+    [string]$Repo  = "limbo-wh/netaudit",
+    # Публичный релиз для посторонних — БЕЗ подписи. Замерено 2026-08-17 (stack.md):
+    # самоподписанный exe без локального доверия к сертификату на целевой машине
+    # блокируется Smart App Control жёстче, чем вообще неподписанный (0/3 против 4/4).
+    # Чужой пользователь сертификат не доверяет, так что подпись только вредит.
+    # Флаг оставлен на случай купленного коммерческого сертификата или раздачи
+    # узкому кругу машин, где сертификат уже доверен через sign-setup.ps1.
+    [switch]$Sign
 )
 
 $ErrorActionPreference = 'Stop'
@@ -55,25 +62,36 @@ dotnet publish $project `
 if ($LASTEXITCODE -ne 0) { Write-Host "Сборка не удалась." -ForegroundColor Red; exit 1 }
 
 # ── 2. Подпись ────────────────────────────────────────────────────────────
-# Подписывается только exe. Проверено 2026-08-17: при включённом Smart App Control
-# самоподписанные библиотеки блокируются жёстче неподписанных — подробности в stack.md
+# По умолчанию НЕ подписывается. Замерено 2026-08-17 (см. stack.md): на машине,
+# где сертификат не доверен локально, Smart App Control блокирует самоподписанный
+# exe жёстче, чем вообще неподписанный (0 из 3 запусков против 4 из 4). Для чужого
+# человека из интернета сертификат никогда не доверен — подпись только вредит.
+# Передайте -Sign, только если распространяете внутри круга машин, где сертификат
+# уже доверен через sign-setup.ps1, либо когда появится настоящий коммерческий сертификат.
 Write-Host ""
 Write-Host "[2/5] Подпись..." -ForegroundColor Cyan
 
-$cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert |
-        Where-Object { $_.Subject -like "*NetAudit*" } |
-        Select-Object -First 1
-
-if ($cert) {
-    $sig = Set-AuthenticodeSignature `
-        -FilePath (Join-Path $outDir "NetAudit.App.exe") `
-        -Certificate $cert `
-        -TimestampServer "http://timestamp.digicert.com" `
-        -HashAlgorithm SHA256
-    if ($sig.Status -eq "Valid") { Write-Host "  подписано: $($cert.Subject)" -ForegroundColor Green }
-    else { Write-Host "  ВНИМАНИЕ: статус подписи $($sig.Status)" -ForegroundColor Yellow }
+if (-not $Sign) {
+    Write-Host "  пропущено — публичный релиз собирается без подписи (см. stack.md)" -ForegroundColor Yellow
 } else {
-    Write-Host "  сертификат не найден, пропускаю" -ForegroundColor Yellow
+    $cert = Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert |
+            Where-Object { $_.Subject -like "*NetAudit*" } |
+            Select-Object -First 1
+
+    if ($cert) {
+        $sig = Set-AuthenticodeSignature `
+            -FilePath (Join-Path $outDir "NetAudit.App.exe") `
+            -Certificate $cert `
+            -TimestampServer "http://timestamp.digicert.com" `
+            -HashAlgorithm SHA256
+        if ($sig.Status -eq "Valid") { Write-Host "  подписано: $($cert.Subject)" -ForegroundColor Green }
+        else { Write-Host "  ВНИМАНИЕ: статус подписи $($sig.Status)" -ForegroundColor Yellow }
+
+        Copy-Item (Join-Path $root "NetAudit-cert.cer") (Join-Path $outDir "NetAudit-cert.cer") -ErrorAction SilentlyContinue
+        Write-Host "  сертификат вложен в архив для trust-cert.ps1" -ForegroundColor Green
+    } else {
+        Write-Host "  сертификат не найден, пропускаю" -ForegroundColor Yellow
+    }
 }
 
 # ── 3. Чистка и вложения ──────────────────────────────────────────────────
@@ -83,7 +101,10 @@ Write-Host "[3/5] Чистка и вложения..." -ForegroundColor Cyan
 Get-ChildItem $outDir -Include "*.pdb", "*.xml" -Recurse -ErrorAction SilentlyContinue |
     Remove-Item -Force
 
-foreach ($f in @("install.bat", "install.ps1")) {
+$bundle = @("install.bat", "install.ps1")
+if ($Sign) { $bundle += "trust-cert.ps1" }   # без подписи доверять нечему
+
+foreach ($f in $bundle) {
     $src = Join-Path $root $f
     if (Test-Path $src) { Copy-Item $src (Join-Path $outDir $f); Write-Host "  вложен $f" }
 }
