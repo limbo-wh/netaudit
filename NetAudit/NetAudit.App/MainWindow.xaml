@@ -859,6 +859,9 @@
                             <Button Content="Ярлык на рабочем столе" Click="OnCreateShortcutFromTests"
                                     Style="{StaticResource TestBtn}"
                                     ToolTip="Создать ярлык NetAudit на рабочем столе."/>
+                            <Button Content="Ярлык (администратор)" Click="OnCreateElevatedShortcut"
+                                    Style="{StaticResource TestBtn}"
+                                    ToolTip="Отдельный ярлык, который всегда запускает NetAudit с правами администратора — Windows спросит подтверждение (UAC) при каждом запуске. Нужен для счётчика FPS: без прав он выключен, а права не сохраняются между запусками программы."/>
                             <Button Content="Папка с данными" Click="OnOpenDataFolder"
                                     Style="{StaticResource TestBtn}"
                                     ToolTip="Открыть папку с настройками, логами пинга и журналом сбоев."/>
