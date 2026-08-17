@@ -402,18 +402,22 @@ public partial class MainWindow
         if (!NetAudit.Core.Probes.FpsProbe.IsElevated)
         {
             Emit(TestLine.Warn("Нужны права администратора: сеанс трассировки ETW может создать только он."));
-            Emit(TestLine.Dim("Поднимать до администратора всё приложение ради одной строки неправильно,"));
-            Emit(TestLine.Dim("поэтому решение оставлено за вами: запустите NetAudit от имени администратора,"));
-            Emit(TestLine.Dim("и счётчик заработает сам. Остальные функции прав не требуют."));
+            Emit(TestLine.Dim("Права не сохраняются между запусками — если сейчас его нет, значит просто"));
+            Emit(TestLine.Dim("запустили обычным способом. Поднимать до администратора всё приложение"));
+            Emit(TestLine.Dim("манифестом ради одной строки неправильно, поэтому решение за вами."));
             Emit(TestLine.Empty);
 
             var answer = MessageBox.Show(this,
-                "Перезапустить NetAudit от имени администратора?\n\n" +
-                "Понадобится только для счётчика кадров. Все остальные функции\n" +
-                "работают и без повышенных прав.",
-                "Счётчик FPS", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
+                "Права администратора нужны только для счётчика кадров — остальное работает и без них.\n\n" +
+                "«Да» — перезапустить сейчас один раз.\n" +
+                "«Нет» — создать на рабочем столе отдельный ярлык, который всегда " +
+                "запускает NetAudit с правами администратора (Windows будет спрашивать " +
+                "подтверждение при каждом запуске с него — это не обход, а обычная элевация).\n" +
+                "«Отмена» — ничего не делать.",
+                "Счётчик FPS", MessageBoxButton.YesNoCancel, MessageBoxImage.Question, MessageBoxResult.No);
 
             if (answer == MessageBoxResult.Yes) RestartElevated();
+            else if (answer == MessageBoxResult.No) OnCreateElevatedShortcut(this, new RoutedEventArgs());
             return;
         }
 
@@ -549,6 +553,20 @@ public partial class MainWindow
         _settings.ShortcutOffered = true;
         _settings.Save();
         ShortcutBanner.Visibility = Visibility.Collapsed;
+    }
+
+    private void OnCreateElevatedShortcut(object sender, RoutedEventArgs e)
+    {
+        if (DesktopShortcut.CreateElevated(out string error))
+        {
+            Emit(TestLine.Good("✓ Создан ярлык «NetAudit (администратор)» на рабочем столе"));
+            Emit(TestLine.Dim("При запуске с него Windows будет спрашивать подтверждение (UAC) каждый раз —"));
+            Emit(TestLine.Dim("это штатная элевация, не обход. Зато счётчик FPS будет работать сразу."));
+        }
+        else
+        {
+            Emit(TestLine.Bad($"Не удалось создать ярлык: {error}"));
+        }
     }
 
     private void OnOpenDataFolder(object sender, RoutedEventArgs e)

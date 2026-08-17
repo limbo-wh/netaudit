@@ -24,10 +24,32 @@ public static class DesktopShortcut
     private static string Path_ =>
         System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "NetAudit.lnk");
 
-    public static bool Exists() => File.Exists(Path_);
+    private static string ElevatedPath =>
+        System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "NetAudit (администратор).lnk");
 
-    /// <summary>Создать ярлык. Возвращает false и текст ошибки, если не вышло.</summary>
-    public static bool Create(out string error)
+    public static bool Exists() => File.Exists(Path_);
+    public static bool ElevatedExists() => File.Exists(ElevatedPath);
+
+    /// <summary>Создать обычный ярлык. Возвращает false и текст ошибки, если не вышло.</summary>
+    public static bool Create(out string error) => CreateAt(Path_, elevated: false, out error);
+
+    /// <summary>
+    /// Ярлык, который Windows всегда запускает с правами администратора — тот же эффект,
+    /// что даёт галочка «Запуск от имени администратора» в свойствах ярлыка (вкладка
+    /// «Совместимость» → «Дополнительно»). UAC всё равно спросит подтверждение при каждом
+    /// запуске — это не обход, а штатное поведение элевации, — но искать галочку вручную
+    /// не придётся.
+    ///
+    /// Нужен из-за счётчика FPS в оверлее: сеанс ETW, на котором он держится, создаёт
+    /// только администратор, а права не сохраняются между запусками программы (проверено
+    /// 2026-08-17 — второй обычный запуск снова оказался без прав, хотя первый был
+    /// с ними). Приложение целиком по-прежнему запускается asInvoker по умолчанию —
+    /// требовать администратора манифестом ради одной строки в оверлее было бы неправильно
+    /// для тех, кому FPS не нужен.
+    /// </summary>
+    public static bool CreateElevated(out string error) => CreateAt(ElevatedPath, elevated: true, out error);
+
+    private static bool CreateAt(string path, bool elevated, out string error)
     {
         error = "";
         string? exe = Environment.ProcessPath;
@@ -45,12 +67,16 @@ public static class DesktopShortcut
             var shellType = Type.GetTypeFromProgID("WScript.Shell")
                 ?? throw new InvalidOperationException("WScript.Shell недоступен");
             dynamic shell = Activator.CreateInstance(shellType)!;
-            dynamic shortcut = shell.CreateShortcut(Path_);
+            dynamic shortcut = shell.CreateShortcut(path);
 
             shortcut.TargetPath = exe;
             shortcut.WorkingDirectory = System.IO.Path.GetDirectoryName(exe);
-            shortcut.Description = "NetAudit — мониторинг сети и системы";
+            shortcut.Description = elevated
+                ? "NetAudit — мониторинг сети и системы (с правами администратора, для счётчика FPS)"
+                : "NetAudit — мониторинг сети и системы";
             shortcut.Save();
+
+            if (elevated) SetRunAsAdminFlag(path);
 
             return true;
         }
@@ -59,5 +85,26 @@ public static class DesktopShortcut
             error = ex.Message;
             return false;
         }
+    }
+
+    /// <summary>
+    /// Проставляет бит «запускать с повышением» прямо в бинарном формате .lnk.
+    /// COM-интерфейс IShellLinkW этого не умеет — только сам Проводник через диалог
+    /// свойств, который дёргает недокументированное расширение формата. Бит лежит
+    /// в LinkFlags (offset 0x15, он же третий байт 32-битного поля flags) под маской
+    /// 0x20 — это ровно то же значение, что ставит галочка «Запуск от имени
+    /// администратора». Задокументировано практикой, не MS-SHLLINK: спецификация
+    /// формата эту возможность не описывает, но флаг стабилен уже больше десяти лет.
+    /// </summary>
+    private static void SetRunAsAdminFlag(string lnkPath)
+    {
+        const int Offset = 0x15;
+        const byte Bit   = 0x20;
+
+        byte[] bytes = File.ReadAllBytes(lnkPath);
+        if (bytes.Length <= Offset) return;   // не похоже на валидный .lnk — не трогаем
+
+        bytes[Offset] |= Bit;
+        File.WriteAllBytes(lnkPath, bytes);
     }
 }
