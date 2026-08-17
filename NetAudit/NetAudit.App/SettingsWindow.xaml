@@ -150,15 +150,69 @@
             <!-- Хоткеи -->
             <TextBlock Text="Горячие клавиши" Foreground="#5C7A69" FontSize="11"
                        Margin="0,10,0,2"
-                       ToolTip="Работают глобально — в том числе когда фокус в игре."/>
-            <Border Background="#111F18" CornerRadius="4" Padding="8,6">
-                <StackPanel>
-                    <TextBlock Foreground="#B6CDBF" FontSize="11" Margin="0,0,0,2"
-                               Text="Ctrl + Alt + O  —  показать / скрыть оверлей"/>
-                    <TextBlock Foreground="#B6CDBF" FontSize="11"
-                               Text="Ctrl + Alt + 1…4  —  в угол экрана (1 ЛВ, 2 ПВ, 3 ЛН, 4 ПН)"/>
-                </StackPanel>
-            </Border>
+                       ToolTip="Работают глобально — в том числе когда фокус в игре. Модификатор всегда Ctrl+Alt, настраивается только клавиша."/>
+            <Grid Margin="0,0,0,2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="220"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Показать / скрыть оверлей" Style="{StaticResource RowLabel}" FontSize="11"/>
+                <ComboBox x:Name="CmbHkOverlay" Grid.Column="1" HorizontalAlignment="Left" Width="72"
+                          Background="#23402F" Foreground="#D8EADF" BorderBrush="#2C5039"
+                          SelectionChanged="OnHotkeyChanged"/>
+            </Grid>
+            <Grid Margin="0,4,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="220"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Разгон перед игрой" Style="{StaticResource RowLabel}" FontSize="11"/>
+                <ComboBox x:Name="CmbHkBoost" Grid.Column="1" HorizontalAlignment="Left" Width="72"
+                          Background="#23402F" Foreground="#D8EADF" BorderBrush="#2C5039"
+                          SelectionChanged="OnHotkeyChanged"/>
+            </Grid>
+            <Grid Margin="0,4,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="220"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Оверлей в угол: левый верхний" Style="{StaticResource RowLabel}" FontSize="11"/>
+                <ComboBox x:Name="CmbHkCorner1" Grid.Column="1" HorizontalAlignment="Left" Width="72"
+                          Background="#23402F" Foreground="#D8EADF" BorderBrush="#2C5039"
+                          SelectionChanged="OnHotkeyChanged"/>
+            </Grid>
+            <Grid Margin="0,4,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="220"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Оверлей в угол: правый верхний" Style="{StaticResource RowLabel}" FontSize="11"/>
+                <ComboBox x:Name="CmbHkCorner2" Grid.Column="1" HorizontalAlignment="Left" Width="72"
+                          Background="#23402F" Foreground="#D8EADF" BorderBrush="#2C5039"
+                          SelectionChanged="OnHotkeyChanged"/>
+            </Grid>
+            <Grid Margin="0,4,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="220"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Оверлей в угол: левый нижний" Style="{StaticResource RowLabel}" FontSize="11"/>
+                <ComboBox x:Name="CmbHkCorner3" Grid.Column="1" HorizontalAlignment="Left" Width="72"
+                          Background="#23402F" Foreground="#D8EADF" BorderBrush="#2C5039"
+                          SelectionChanged="OnHotkeyChanged"/>
+            </Grid>
+            <Grid Margin="0,4,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="220"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Оверлей в угол: правый нижний" Style="{StaticResource RowLabel}" FontSize="11"/>
+                <ComboBox x:Name="CmbHkCorner4" Grid.Column="1" HorizontalAlignment="Left" Width="72"
+                          Background="#23402F" Foreground="#D8EADF" BorderBrush="#2C5039"
+                          SelectionChanged="OnHotkeyChanged"/>
+            </Grid>
+            <TextBlock Foreground="#5C7A69" FontSize="10" TextWrapping="Wrap" Margin="0,4,0,0"
+                       Text="Если комбинация занята другой программой — предупреждение появится в логе событий главного окна."/>
 
             <!-- Метрики -->
             <TextBlock Text="Метрики" Foreground="#5C7A69" FontSize="11"

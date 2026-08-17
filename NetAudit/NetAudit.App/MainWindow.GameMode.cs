@@ -60,8 +60,9 @@ public partial class MainWindow
 
         var state = GameModeDetector.Detect();
 
-        // Своё же окно в полный экран игрой не считается
-        bool detected = state.Active && !IsOwnWindow(state);
+        // Своё же окно в полный экран игрой не считается, как и то, что пользователь
+        // сам исключил в настройках (плеер, редактор — у кого-то тоже разворачивается)
+        bool detected = state.Active && !IsOwnWindow(state) && !IsExcluded(state);
 
         if (detected == _lastReading) _sameReadings++;
         else { _lastReading = detected; _sameReadings = 1; }
@@ -74,6 +75,10 @@ public partial class MainWindow
 
     private static bool IsOwnWindow(GameModeState state) =>
         state.ProcessName.Equals("NetAudit.App", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsExcluded(GameModeState state) =>
+        state.ProcessName.Length > 0 &&
+        _settings.GameModeExcludedProcesses.Any(p => p.Equals(state.ProcessName, StringComparison.OrdinalIgnoreCase));
 
     private void EnterGameMode(GameModeState state)
     {

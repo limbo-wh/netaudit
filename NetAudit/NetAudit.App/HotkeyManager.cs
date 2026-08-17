@@ -34,6 +34,7 @@ public sealed class HotkeyManager : IDisposable
     public const uint Vk4 = 0x34;
 
     private readonly Dictionary<int, Action> _actions = [];
+    private readonly Dictionary<string, int> _slotIds = [];
     private HwndSource? _source;
     private int _nextId = 1;
 
@@ -49,18 +50,28 @@ public sealed class HotkeyManager : IDisposable
     }
 
     /// <summary>
-    /// Зарегистрировать хоткей. Возвращает false, если комбинацию уже занял
-    /// другой процесс — это штатная ситуация, падать не надо.
+    /// Зарегистрировать хоткей под именованным слотом. Возвращает false, если
+    /// комбинацию уже занял другой процесс — это штатная ситуация, падать не надо.
+    /// Повторный вызов с тем же именем слота снимает старую комбинацию и ставит
+    /// новую — так настройки хоткеев применяются мгновенно, без перезапуска.
     /// </summary>
-    public bool Register(uint modifiers, uint vk, Action action)
+    public bool Bind(string slot, uint modifiers, uint vk, Action action)
     {
         if (_source is null) return false;
+
+        if (_slotIds.TryGetValue(slot, out int oldId))
+        {
+            UnregisterHotKey(_source.Handle, oldId);
+            _actions.Remove(oldId);
+            _slotIds.Remove(slot);
+        }
 
         int id = _nextId++;
         if (!RegisterHotKey(_source.Handle, id, modifiers | ModNoRepeat, vk))
             return false;
 
-        _actions[id] = action;
+        _actions[id]  = action;
+        _slotIds[slot] = id;
         return true;
     }
 
@@ -82,6 +93,7 @@ public sealed class HotkeyManager : IDisposable
             UnregisterHotKey(_source.Handle, id);
 
         _actions.Clear();
+        _slotIds.Clear();
         _source.RemoveHook(WndProc);
         _source = null;
     }

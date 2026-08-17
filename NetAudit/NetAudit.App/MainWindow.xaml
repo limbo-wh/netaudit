@@ -586,6 +586,30 @@
                         <CheckBox x:Name="ChkGameQuietLog" Content="В логе только потери и спайки" Margin="16,2,0,0"
                                   Checked="OnGameCheckChanged" Unchecked="OnGameCheckChanged"
                                   ToolTip="Во время игры обычные строки пинга в лог не пишутся. Потери и аномальные задержки записываются как обычно."/>
+                        <CheckBox x:Name="ChkGameLossAlerts" Content="Баллон в трее при серии потерь" Margin="0,8,0,0"
+                                  Checked="OnGameCheckChanged" Unchecked="OnGameCheckChanged"
+                                  ToolTip="Всплывающее уведомление в трее при 5 потерянных пингах подряд во время игры — чтобы заметить проблему, пока окно свёрнуто."/>
+
+                        <TextBlock Text="Не считать игрой:" Foreground="#5C7A69" FontSize="11" Margin="0,10,0,4"
+                                   ToolTip="Полноэкранные плеер, редактор или что-то ещё, что не должно включать авто-режим. Список запоминается между запусками."/>
+                        <Button Content="⟳ Обновить список запущенных программ" Click="OnExcludeRefreshProcesses"
+                                HorizontalAlignment="Left"
+                                Background="#23402F" Foreground="#D8EADF" BorderBrush="#2C5039"
+                                Padding="8,2" FontSize="11" Cursor="Hand" Margin="0,0,0,4"
+                                ToolTip="Показать текущие запущенные программы с окном. Отметьте, что не считать игрой."/>
+                        <Border BorderBrush="#23402F" BorderThickness="1" Height="100">
+                            <ListBox x:Name="ExcludeProcessList" Background="#0C1611" BorderThickness="0"
+                                     FontSize="11" Foreground="#D8EADF"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <CheckBox Content="{Binding Name}" IsChecked="{Binding Checked}"
+                                                  Foreground="#D8EADF" Margin="2,1"
+                                                  Checked="OnExcludeProcessCheckChanged" Unchecked="OnExcludeProcessCheckChanged"/>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Border>
 
                         <Border Height="1" Background="#23402F" Margin="0,14,0,12"/>
 

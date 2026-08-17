@@ -5,6 +5,32 @@ namespace NetAudit.App;
 
 public partial class SettingsWindow : Window
 {
+    /// <summary>Кандидаты для хоткеев: A-Z и 0-9. Значения совпадают с виртуальными кодами клавиш Windows.</summary>
+    private static readonly (string Label, uint Vk)[] HotkeyKeyOptions =
+        [.. Enumerable.Range('A', 26).Select(c => (((char)c).ToString(), (uint)c))
+                       .Concat(Enumerable.Range('0', 10).Select(c => (((char)c).ToString(), (uint)c)))];
+
+    /// <summary>
+    /// Заполняет комбобокс явными ComboBoxItem с Tag = код клавиши — тот же приём, что уже
+    /// используется для CmbFontSize. ItemsSource + DisplayMemberPath здесь не подошли: кастомный
+    /// ControlTemplate ComboBox в Theme.xaml корректно показывает SelectionBoxItem для обычных
+    /// ComboBoxItem, но с DisplayMemberPath по произвольному классу вместо текста показывал
+    /// ToString() типа целиком — проверено живым запуском.
+    /// </summary>
+    private static void FillHotkeyCombo(ComboBox cmb, uint currentVk)
+    {
+        cmb.Items.Clear();
+        foreach (var (label, vk) in HotkeyKeyOptions)
+        {
+            var item = new ComboBoxItem { Content = label, Tag = vk };
+            cmb.Items.Add(item);
+            if (vk == currentVk) cmb.SelectedItem = item;
+        }
+    }
+
+    private static uint? SelectedVk(ComboBox cmb) =>
+        cmb.SelectedItem is ComboBoxItem item && item.Tag is uint vk ? vk : null;
+
     private readonly AppSettings _settings;
     private readonly AppSettings _snapshot;   // состояние на момент открытия — для отката
     private readonly Action      _onApply;
@@ -69,6 +95,14 @@ public partial class SettingsWindow : Window
         SliderOverlayY.Value   = Math.Clamp(_settings.OverlayTop,  0, SliderOverlayY.Maximum);
         OverlayXLabel.Text     = $"{SliderOverlayX.Value:F0} пкс";
         OverlayYLabel.Text     = $"{SliderOverlayY.Value:F0} пкс";
+
+        // Хоткеи
+        FillHotkeyCombo(CmbHkOverlay, _settings.HotkeyOverlayVk);
+        FillHotkeyCombo(CmbHkBoost,   _settings.HotkeyBoostVk);
+        FillHotkeyCombo(CmbHkCorner1, _settings.HotkeyCorner1Vk);
+        FillHotkeyCombo(CmbHkCorner2, _settings.HotkeyCorner2Vk);
+        FillHotkeyCombo(CmbHkCorner3, _settings.HotkeyCorner3Vk);
+        FillHotkeyCombo(CmbHkCorner4, _settings.HotkeyCorner4Vk);
 
         // Метрики
         ChkOvFps.IsChecked    = _settings.OvShowFps;
@@ -203,6 +237,8 @@ public partial class SettingsWindow : Window
         ApplyLive();
     }
 
+    private void OnHotkeyChanged(object sender, SelectionChangedEventArgs e) => ApplyLive();
+
     // ── Сбор значений ─────────────────────────────────────────────────────
 
     private void SaveToSettings()
@@ -224,6 +260,13 @@ public partial class SettingsWindow : Window
         if (CmbFontSize.SelectedItem is ComboBoxItem item &&
             int.TryParse(item.Tag?.ToString(), out int fs))
             _settings.OverlayFontSize = fs;
+
+        if (SelectedVk(CmbHkOverlay) is uint hkOverlay) _settings.HotkeyOverlayVk = hkOverlay;
+        if (SelectedVk(CmbHkBoost)   is uint hkBoost)   _settings.HotkeyBoostVk   = hkBoost;
+        if (SelectedVk(CmbHkCorner1) is uint hkC1)      _settings.HotkeyCorner1Vk = hkC1;
+        if (SelectedVk(CmbHkCorner2) is uint hkC2)      _settings.HotkeyCorner2Vk = hkC2;
+        if (SelectedVk(CmbHkCorner3) is uint hkC3)      _settings.HotkeyCorner3Vk = hkC3;
+        if (SelectedVk(CmbHkCorner4) is uint hkC4)      _settings.HotkeyCorner4Vk = hkC4;
 
         _settings.OvShowFps    = ChkOvFps.IsChecked == true;
         _settings.OvShowCpu    = ChkOvCpu.IsChecked == true;

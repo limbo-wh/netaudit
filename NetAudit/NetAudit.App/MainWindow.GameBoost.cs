@@ -12,7 +12,19 @@ namespace NetAudit.App;
 public partial class MainWindow
 {
     private readonly GameBoostService _gameBoost = new();
-    private readonly ObservableCollection<BoostProcessItem> _boostProcesses = [];
+    private readonly ObservableCollection<BoostProcessItem> _boostProcesses   = [];
+    private readonly ObservableCollection<BoostProcessItem> _excludeProcesses = [];
+
+    /// <summary>
+    /// Пока вкладка заполняется из настроек, чекбоксы выставляются по одному —
+    /// каждый уже вызывает свой обработчик (Checked/Unchecked висят с самой разметки
+    /// XAML). Без этого флага такой обработчик читает состояние ЕЩЁ не выставленных
+    /// соседних чекбоксов как false и тут же сохраняет это в _settings — а следующая
+    /// строка SetupGameBoost() читает из _settings уже испорченное значение для
+    /// следующего чекбокса. Итог без флага: сохраняется true только для самого первого
+    /// чекбокса в группе, остальные молча падают в false при каждом запуске.
+    /// </summary>
+    private bool _gameTabLoading = true;
 
     public sealed class BoostProcessItem
     {
@@ -26,7 +38,12 @@ public partial class MainWindow
         ChkGamePriority.IsChecked    = _settings.GameModeLowerPriority;
         ChkGameSlowMetrics.IsChecked = _settings.GameModeSlowMetrics;
         ChkGameQuietLog.IsChecked    = _settings.GameModeQuietLog;
+        ChkGameLossAlerts.IsChecked  = _settings.GameModeLossAlerts;
         UpdateGameModeSubAvailability();
+
+        ExcludeProcessList.ItemsSource = _excludeProcesses;
+        foreach (string name in _settings.GameModeExcludedProcesses)
+            _excludeProcesses.Add(new BoostProcessItem { Name = name, Checked = true });
 
         ChkBoostPower.IsChecked    = _settings.GameBoostPowerPlan;
         ChkBoostNotify.IsChecked   = _settings.GameBoostMuteNotify;
@@ -39,20 +56,37 @@ public partial class MainWindow
             _boostProcesses.Add(new BoostProcessItem { Name = name, Checked = true });
 
         UpdateBoostButton();
+        _gameTabLoading = false;
     }
 
     // ── Авто-режим ───────────────────────────────────────────────────────
 
     private void OnGameCheckChanged(object sender, RoutedEventArgs e)
     {
+        if (_gameTabLoading) return;
+
         _settings.GameModeEnabled       = ChkGameMode.IsChecked == true;
         _settings.GameModeLowerPriority = ChkGamePriority.IsChecked == true;
         _settings.GameModeSlowMetrics   = ChkGameSlowMetrics.IsChecked == true;
         _settings.GameModeQuietLog      = ChkGameQuietLog.IsChecked == true;
+        _settings.GameModeLossAlerts    = ChkGameLossAlerts.IsChecked == true;
         _settings.Save();
 
         UpdateGameModeSubAvailability();
         ApplyGameModeSettings();
+    }
+
+    // ── Исключения из авто-режима ────────────────────────────────────────
+
+    private void OnExcludeRefreshProcesses(object sender, RoutedEventArgs e) =>
+        RefreshProcessChecklist(_excludeProcesses);
+
+    private void OnExcludeProcessCheckChanged(object sender, RoutedEventArgs e)
+    {
+        if (_gameTabLoading) return;
+
+        _settings.GameModeExcludedProcesses = [.. _excludeProcesses.Where(p => p.Checked).Select(p => p.Name)];
+        _settings.Save();
     }
 
     /// <summary>Подпункты имеют смысл только при включённом авто-режиме.</summary>
@@ -68,6 +102,8 @@ public partial class MainWindow
 
     private void OnBoostOptionChanged(object sender, RoutedEventArgs e)
     {
+        if (_gameTabLoading) return;
+
         _settings.GameBoostPowerPlan     = ChkBoostPower.IsChecked == true;
         _settings.GameBoostMuteNotify    = ChkBoostNotify.IsChecked == true;
         _settings.GameBoostVisualEffects = ChkBoostEffects.IsChecked == true;
@@ -78,10 +114,14 @@ public partial class MainWindow
 
     // ── Список процессов для закрытия ────────────────────────────────────
 
-    private void OnBoostRefreshProcesses(object sender, RoutedEventArgs e)
+    private void OnBoostRefreshProcesses(object sender, RoutedEventArgs e) =>
+        RefreshProcessChecklist(_boostProcesses);
+
+    /// <summary>Обновить чек-лист реально запущенных программ с окном, сохранив отметки.</summary>
+    private static void RefreshProcessChecklist(ObservableCollection<BoostProcessItem> list)
     {
         var checkedNames = new HashSet<string>(
-            _boostProcesses.Where(p => p.Checked).Select(p => p.Name),
+            list.Where(p => p.Checked).Select(p => p.Name),
             StringComparer.OrdinalIgnoreCase);
 
         var names = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -100,13 +140,15 @@ public partial class MainWindow
         // То, что пользователь уже отметил, сохраняем даже если сейчас не запущено
         foreach (var name in checkedNames) names.Add(name);
 
-        _boostProcesses.Clear();
+        list.Clear();
         foreach (var name in names)
-            _boostProcesses.Add(new BoostProcessItem { Name = name, Checked = checkedNames.Contains(name) });
+            list.Add(new BoostProcessItem { Name = name, Checked = checkedNames.Contains(name) });
     }
 
     private void OnBoostProcessCheckChanged(object sender, RoutedEventArgs e)
     {
+        if (_gameTabLoading) return;
+
         _settings.GameBoostCloseApps = [.. _boostProcesses.Where(p => p.Checked).Select(p => p.Name)];
         _settings.Save();
     }
