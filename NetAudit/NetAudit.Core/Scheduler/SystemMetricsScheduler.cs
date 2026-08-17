@@ -39,6 +39,10 @@ public sealed class SystemMetricsScheduler : IAsyncDisposable
     public bool   FpsAvailable => _fpsProbe.Available;
     public string FpsStatus    => _fpsProbe.Status;
 
+    /// <summary>Сырые события ETW и сколько из них опознано как кадр — для самодиагностики.</summary>
+    public long FpsEventsSeen      => _fpsProbe.EventsSeen;
+    public long FpsPresentsMatched => _fpsProbe.PresentsMatched;
+
     /// <summary>
     /// Включить или выключить счётчик FPS. Сеанс ETW поднимается только по запросу:
     /// держать его ради выключенной строки в оверлее незачем.

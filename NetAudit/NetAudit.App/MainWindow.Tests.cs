@@ -417,18 +417,28 @@ public partial class MainWindow
             return;
         }
 
-        if (ok)
-        {
-            Emit(TestLine.Good("Счётчик работает. Прочерк в оверлее означает, что на переднем плане"));
-            Emit(TestLine.Good("нет ничего рисующего — сверните NetAudit и запустите игру."));
-            Emit(TestLine.Empty);
-            Emit(TestLine.Dim("Охват: Direct3D 9/10/11/12, то есть почти все игры под Windows."));
-            Emit(TestLine.Dim("Игры на Vulkan и OpenGL мимо DXGI счётчик не увидит."));
-        }
-        else
+        if (!ok)
         {
             Emit(TestLine.Bad("Права есть, но сеанс не поднялся. Причина выше."));
+            return;
         }
+
+        Emit(TestLine.Good("Счётчик работает. Прочерк в оверлее означает, что на переднем плане"));
+        Emit(TestLine.Good("нет ничего рисующего — сверните NetAudit и запустите игру."));
+        Emit(TestLine.Empty);
+        Emit(TestLine.Dim("Охват: Direct3D 9/10/11/12, то есть почти все игры под Windows."));
+        Emit(TestLine.Dim("Игры на Vulkan и OpenGL мимо DXGI счётчик не увидит."));
+
+        // Живая самодиагностика: если разрешение имён событий когда-нибудь снова
+        // сломается (как уже было — session.Source.AllEvents не резолвил "Present"
+        // и молча не находил ни одного события), эти цифры это сразу покажут,
+        // а не оставят гадать по одному прочерку в оверлее
+        long seen    = _sysScheduler?.FpsEventsSeen ?? 0;
+        long matched = _sysScheduler?.FpsPresentsMatched ?? 0;
+        Emit(TestLine.Empty);
+        Emit(TestLine.Dim($"Диагностика: событий ETW получено {seen}, из них кадров опознано {matched}."));
+        if (seen > 0 && matched == 0)
+            Emit(TestLine.Warn("События идут, но ни одно не опознано как кадр — похоже, сломалось распознавание имён."));
     }
 
     /// <summary>Перезапуск с повышением прав. Настройки уже на диске, терять нечего.</summary>
@@ -524,6 +534,21 @@ public partial class MainWindow
             UpdateDownloadBtn.IsEnabled = true;
             TestStatusLbl.Text = "Тест не запущен";
         }
+    }
+
+    private void OnCreateShortcutFromTests(object sender, RoutedEventArgs e)
+    {
+        if (DesktopShortcut.Create(out string error))
+        {
+            Emit(TestLine.Good("✓ Ярлык на рабочем столе создан"));
+        }
+        else
+        {
+            Emit(TestLine.Bad($"Не удалось создать ярлык: {error}"));
+        }
+        _settings.ShortcutOffered = true;
+        _settings.Save();
+        ShortcutBanner.Visibility = Visibility.Collapsed;
     }
 
     private void OnOpenDataFolder(object sender, RoutedEventArgs e)

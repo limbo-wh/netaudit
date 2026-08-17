@@ -36,6 +36,7 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <!-- Строка 1: статус + кнопки -->
@@ -90,8 +91,25 @@
                            TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
             </Border>
 
-            <!-- Строка 3: баннер обновления (скрыт по умолчанию) -->
-            <Border Grid.Row="2" x:Name="UpdateBanner" Visibility="Collapsed"
+            <!-- Строка 3: предложить ярлык на рабочем столе (скрыт по умолчанию, один раз) -->
+            <Border Grid.Row="2" x:Name="ShortcutBanner" Visibility="Collapsed"
+                    Background="#111F18" BorderBrush="#2C5039" BorderThickness="0,1,0,0"
+                    Padding="10,5" Margin="0,4,0,0">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Content="✕" Click="OnShortcutDismiss"
+                            Background="Transparent" Foreground="#5C7A69" BorderBrush="Transparent"
+                            Padding="8,0" FontSize="14" Cursor="Hand"
+                            ToolTip="Скрыть — больше не предлагать."/>
+                    <Button DockPanel.Dock="Right" Content="Создать ярлык" Click="OnShortcutCreate"
+                            Background="#23402F" Foreground="#D8EADF" BorderBrush="#2C5039"
+                            Padding="10,3" FontSize="11" Cursor="Hand" Margin="0,0,8,0"/>
+                    <TextBlock Text="Создать ярлык NetAudit на рабочем столе?" Foreground="#B6CDBF"
+                               FontSize="11" VerticalAlignment="Center"/>
+                </DockPanel>
+            </Border>
+
+            <!-- Строка 4: баннер обновления (скрыт по умолчанию) -->
+            <Border Grid.Row="3" x:Name="UpdateBanner" Visibility="Collapsed"
                     Background="#1A2410" BorderBrush="#DFC46A" BorderThickness="0,1,0,0"
                     Padding="10,5" Margin="0,4,0,0"
                     ToolTip="Доступна новая версия NetAudit. Скачайте архив и замените файлы в папке с программой.">
@@ -838,6 +856,9 @@
                             <Button Content="Проверить обновление" Click="OnCheckUpdate"
                                     Style="{StaticResource TestBtn}"
                                     ToolTip="Спросить сервер обновлений, есть ли версия новее установленной."/>
+                            <Button Content="Ярлык на рабочем столе" Click="OnCreateShortcutFromTests"
+                                    Style="{StaticResource TestBtn}"
+                                    ToolTip="Создать ярлык NetAudit на рабочем столе."/>
                             <Button Content="Папка с данными" Click="OnOpenDataFolder"
                                     Style="{StaticResource TestBtn}"
                                     ToolTip="Открыть папку с настройками, логами пинга и журналом сбоев."/>

@@ -101,20 +101,27 @@ Write-Host "[3/5] Чистка и вложения..." -ForegroundColor Cyan
 Get-ChildItem $outDir -Include "*.pdb", "*.xml" -Recurse -ErrorAction SilentlyContinue |
     Remove-Item -Force
 
-$bundle = @("install.bat", "install.ps1")
-if ($Sign) { $bundle += "trust-cert.ps1" }   # без подписи доверять нечему
-
-foreach ($f in $bundle) {
-    $src = Join-Path $root $f
-    if (Test-Path $src) { Copy-Item $src (Join-Path $outDir $f); Write-Host "  вложен $f" }
+# install.bat/install.ps1 больше не существуют. Причина: install.bat (батник,
+# двойным щелчком поднимающий powershell -ExecutionPolicy Bypass) на файле с
+# меткой «загружено из интернета» блокируется Application Control наглухо —
+# «Dangerous file extension from the web», проверено 2026-08-17. Ни подпись,
+# ни доверенный сертификат этого не лечат: блокируется само расширение .bat.
+# Взамен: недостающий .NET Runtime показывает нативным диалогом сам apphost
+# (подписан Microsoft, ничем не блокируется), а ярлык на рабочем столе создаёт
+# сам процесс — кнопка в приложении, без стороннего скрипта.
+if ($Sign) {
+    $src = Join-Path $root "trust-cert.ps1"
+    if (Test-Path $src) { Copy-Item $src (Join-Path $outDir "trust-cert.ps1"); Write-Host "  вложен trust-cert.ps1" }
 }
 
 $readme = @"
 NetAudit $Version
 
 УСТАНОВКА
-  Запустите install.bat. Он поставит .NET 10 Runtime, если его нет,
-  и создаст ярлык на рабочем столе.
+  Запустите NetAudit.App.exe.
+  Если Windows покажет окно про отсутствующий компонент — это .NET Desktop
+  Runtime, кнопка в этом же окне скачает его с официального сайта Microsoft.
+  Ярлык на рабочем столе приложение при первом запуске предложит создать само.
 
 ОБНОВЛЕНИЕ
   Приложение обновляется само: «Тесты и сервис» -> «Проверить обновление».

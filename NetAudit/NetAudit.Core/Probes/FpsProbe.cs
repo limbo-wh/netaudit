@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Security.Principal;
 using Microsoft.Diagnostics.Tracing;
+using Microsoft.Diagnostics.Tracing.Parsers;
 using Microsoft.Diagnostics.Tracing.Session;
 
 namespace NetAudit.Core.Probes;
@@ -37,17 +38,29 @@ public sealed class FpsProbe : IDisposable
     /// <summary>Процесс, не показавший ни кадра за это время, забывается.</summary>
     private static readonly TimeSpan StaleAfter = TimeSpan.FromSeconds(5);
 
-    private TraceEventSession? _session;
-    private Thread?            _pump;
-    private volatile bool      _disposed;
+    private TraceEventSession?          _session;
+    private RegisteredTraceEventParser? _parser;
+    private Thread?                     _pump;
+    private volatile bool               _disposed;
 
     private readonly ConcurrentDictionary<int, Counter> _counters = new();
+
+    // Диагностика для «Счётчик FPS: состояние» — если когда-нибудь снова сломается
+    // разрешение имён событий, эти цифры сразу покажут это, а не оставят гадать
+    private long _eventsSeen;
+    private long _presentsMatched;
 
     /// <summary>Счётчик работает и события идут.</summary>
     public bool Available { get; private set; }
 
     /// <summary>Человекочитаемая причина, если счётчик не работает.</summary>
     public string Status { get; private set; } = "не запущен";
+
+    /// <summary>Всего событий ETW получено от провайдеров DXGI/D3D9 с момента запуска.</summary>
+    public long EventsSeen => Interlocked.Read(ref _eventsSeen);
+
+    /// <summary>Из них опознано как начало кадра (Present).</summary>
+    public long PresentsMatched => Interlocked.Read(ref _presentsMatched);
 
     private sealed class Counter
     {
@@ -97,7 +110,17 @@ public sealed class FpsProbe : IDisposable
             _session.EnableProvider(DxgiProvider, TraceEventLevel.Informational, ulong.MaxValue);
             _session.EnableProvider(D3d9Provider, TraceEventLevel.Informational, ulong.MaxValue);
 
-            _session.Source.AllEvents += OnEvent;
+            // Критично: голый Source.AllEvents отдаёт «сырые» события без разбора манифеста —
+            // TaskName для DXGI/D3D9 в этом случае приходит как "EventID(42)", а не "Present",
+            // потому что их манифест зарегистрирован в системе через wevtutil (путь TDH), а не
+            // разослан динамически по ETW, и именно динамический путь понимает голый Source.
+            // Без этого разбора фильтр по имени не находил вообще ничего, и счётчик молча
+            // не считал ни кадра — при этом Available оставался true, ошибки не было,
+            // просто событий с нужным именем не приходило никогда. Проверено 2026-08-17
+            // на живой Dota 2: с RegisteredTraceEventParser TaskName == "Present" резолвится
+            // верно и совпадает по числу 1:1 со Stop-парой (id 42/43 в манифесте DXGI).
+            _parser = new RegisteredTraceEventParser(_session.Source);
+            _parser.All += OnEvent;
 
             // Source.Process() блокирует поток до остановки сеанса — ему нужен свой
             _pump = new Thread(Pump)
@@ -136,11 +159,21 @@ public sealed class FpsProbe : IDisposable
 
     private void OnEvent(TraceEvent ev)
     {
+        Interlocked.Increment(ref _eventsSeen);
+
         // Считаем только начало отрисовки кадра. Событий у провайдера больше,
         // но начало и конец одного кадра дали бы удвоенный FPS
         if (ev.Opcode != TraceEventOpcode.Start) return;
         if (ev.ProcessID <= 0) return;
-        if (!ev.TaskName.Contains("Present", StringComparison.OrdinalIgnoreCase)) return;
+
+        // Точное совпадение, не Contains. У DXGI несколько разных событий с "Present"
+        // в имени на разных уровнях: "Present" (то, что нужно — сам факт показа кадра),
+        // "IDXGISwapChain_Present" (вызов метода приложением) и "PresentMultiplaneOverlay".
+        // Проверено на живой Dota 2: подстрока "Present" ловит все три семейства сразу
+        // и завтраивает счётчик. Нужен именно голый "Present" — его id 42/43 в манифесте.
+        if (ev.TaskName != "Present") return;
+
+        Interlocked.Increment(ref _presentsMatched);
 
         var c = _counters.GetOrAdd(ev.ProcessID, _ => new Counter
         {
@@ -200,6 +233,7 @@ public sealed class FpsProbe : IDisposable
         Available = false;
         try { _session?.Dispose(); } catch { }
         _session = null;
+        _parser  = null;
     }
 
     /// <summary>Закрыть сеанс. После этого Start можно вызвать снова.</summary>
@@ -214,6 +248,8 @@ public sealed class FpsProbe : IDisposable
         try { _pump?.Join(TimeSpan.FromSeconds(2)); } catch { }
         _pump = null;
         _counters.Clear();
+        Interlocked.Exchange(ref _eventsSeen, 0);
+        Interlocked.Exchange(ref _presentsMatched, 0);
         Status = "выключен";
     }
 

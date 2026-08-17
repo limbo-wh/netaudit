@@ -66,6 +66,9 @@ public sealed class AppSettings
     /// <summary>При автозапуске сразу прятаться в трей, не показывая окна.</summary>
     public bool StartMinimized  { get; set; } = true;
 
+    /// <summary>Баннер «создать ярлык на рабочем столе» уже показывали — второй раз не нужно.</summary>
+    public bool ShortcutOffered { get; set; } = false;
+
     /// <summary>Снимок для отката: настройки применяются сразу, «Отмена» возвращает это состояние.</summary>
     public AppSettings Clone() => (AppSettings)MemberwiseClone();
 
