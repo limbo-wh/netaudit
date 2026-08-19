@@ -11,6 +11,8 @@ app_lan/                                  ← корень git-репозито�
 ├── .gitignore                            bin/obj/dist, сертификаты, локальные настройки
 ├── .gitattributes                        LF в репозитории, CRLF для .ps1/.bat
 ├── README.md                             описание для GitHub
+├── docs/
+│   └── screenshots/                      скриншоты для README (вкладки, настройки, оверлей)
 ├── .claude/
 │   ├── stack.md                          стек, версии, ключевые решения
 │   ├── skeleton.md                       этот файл
