@@ -12,6 +12,12 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        if (!SingleInstance.AcquireOrNotifyExisting())
+        {
+            Shutdown();
+            return;
+        }
+
         DispatcherUnhandledException += OnDispatcherException;
 
         // Падения вне UI-потока диспетчер не ловит, а именно они убивают процесс молча

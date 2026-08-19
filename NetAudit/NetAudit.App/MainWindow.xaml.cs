@@ -1074,6 +1074,7 @@ public partial class MainWindow : Window
         base.OnSourceInitialized(e);
         _hotkeys.Attach(this);
         RebindHotkeys();
+        SingleInstance.Attach(this, ShowFromTray);
     }
 
     /// <summary>
