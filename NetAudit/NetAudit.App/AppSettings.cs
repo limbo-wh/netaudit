@@ -22,6 +22,15 @@ public sealed class AppSettings
     public string UpdateCheckUrl { get; set; } =
         "https://raw.githubusercontent.com/limbo-wh/netaudit/main/NetAudit/version.json";
 
+    // Сырой файл version-beta.json в ветке dev — ранние сборки до переноса в main.
+    public string UpdateCheckUrlBeta { get; set; } =
+        "https://raw.githubusercontent.com/limbo-wh/netaudit/dev/NetAudit/version-beta.json";
+
+    public bool UseBetaUpdates { get; set; } = false;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string EffectiveUpdateCheckUrl => UseBetaUpdates ? UpdateCheckUrlBeta : UpdateCheckUrl;
+
     // ── Оверлей ────────────────────────────────────────────────────────────
     public bool   OverlayEnabled  { get; set; } = false;
     public double OverlayLeft     { get; set; } = 20;
@@ -110,7 +119,9 @@ public sealed class AppSettings
         ShowCpuGraph = s.ShowCpuGraph;
         ShowRamGraph = s.ShowRamGraph;
 
-        UpdateCheckUrl = s.UpdateCheckUrl;
+        UpdateCheckUrl     = s.UpdateCheckUrl;
+        UpdateCheckUrlBeta = s.UpdateCheckUrlBeta;
+        UseBetaUpdates     = s.UseBetaUpdates;
 
         OverlayEnabled = s.OverlayEnabled;
         OverlayLeft = s.OverlayLeft;
