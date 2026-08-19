@@ -86,6 +86,7 @@ app_lan/                                  ← корень git-репозито�
     │   ├── DesktopShortcut.cs            ярлык на рабочем столе через WScript.Shell, без install.bat
     │   ├── TrayIcon.cs                   NotifyIcon с меню, подсказкой и уведомлениями
     │   ├── HotkeyManager.cs              RegisterHotKey + WM_HOTKEY через HwndSource
+    │   ├── SingleInstance.cs             именованный Mutex — запрет второго экземпляра
     │   ├── MainWindow.xaml(.cs)          графики, статистика, лог, диспетчер, хоткеи
     │   ├── MainWindow.Tests.cs           вкладка тестов, сброс сети, обновление
     │   ├── MainWindow.GameMode.cs        игровой режим: приоритет, отрисовка, лог
