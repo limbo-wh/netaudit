@@ -11,6 +11,7 @@ app_lan/                                  ← корень git-репозито�
 ├── .gitignore                            bin/obj/dist, сертификаты, локальные настройки
 ├── .gitattributes                        LF в репозитории, CRLF для .ps1/.bat
 ├── README.md                             описание для GitHub
+├── LICENSE                                PolyForm Noncommercial 1.0.0
 ├── docs/
 │   └── screenshots/                      скриншоты для README (вкладки, настройки, оверлей)
 ├── .claude/
