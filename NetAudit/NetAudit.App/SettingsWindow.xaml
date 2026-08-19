@@ -269,6 +269,15 @@
 
             <TextBlock x:Name="AutoStartHint" Foreground="#5C7A69" FontSize="10"
                        TextWrapping="Wrap" Margin="0,4,0,0"/>
+
+            <Border Height="1" Background="#23402F" Margin="0,12,0,12"/>
+
+            <!-- Обновления -->
+            <TextBlock Text="Обновления" Foreground="#4FD98B"
+                       Style="{StaticResource SectionTitle}"
+                       ToolTip="Из какой ветки приложение проверяет новые версии."/>
+            <CheckBox x:Name="ChkBetaUpdates" Content="Получать бета-обновления"
+                      ToolTip="Ранние сборки из ветки разработки (dev) — раньше, чем они попадут в стабильный релиз. Могут быть недоделаны или содержать баги. Выключите в любой момент, чтобы вернуться на стабильный канал."/>
         </StackPanel>
 
         <!-- Кнопки -->

@@ -331,7 +331,8 @@ public partial class MainWindow
         Emit(TestLine.Empty);
         Emit(TestLine.Head("Проверка обновлений"));
 
-        if (string.IsNullOrWhiteSpace(_settings.UpdateCheckUrl))
+        string url = _settings.EffectiveUpdateCheckUrl;
+        if (string.IsNullOrWhiteSpace(url))
         {
             Emit(TestLine.Warn("Адрес проверки не задан."));
             Emit(TestLine.Dim("Он появится, когда проект будет выложен на GitHub. До тех пор обновляться неоткуда."));
@@ -341,11 +342,12 @@ public partial class MainWindow
         var current = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version
                       ?? new Version(1, 0);
         Emit(TestLine.Dim($"Установлено: {current.Major}.{current.Minor}.{current.Build}"));
-        Emit(TestLine.Dim($"Источник: {_settings.UpdateCheckUrl}"));
+        Emit(TestLine.Dim($"Канал: {(_settings.UseBetaUpdates ? "бета" : "стабильный")}"));
+        Emit(TestLine.Dim($"Источник: {url}"));
 
         try
         {
-            var info = await NetAudit.Core.UpdateChecker.CheckAsync(_settings.UpdateCheckUrl, current);
+            var info = await NetAudit.Core.UpdateChecker.CheckAsync(url, current);
             if (info is null)
             {
                 Emit(TestLine.Good("Установлена последняя версия"));

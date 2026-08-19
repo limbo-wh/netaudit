@@ -16,8 +16,17 @@
 .PARAMETER Repo
     Репозиторий GitHub в виде «владелец/имя». Из него строится ссылка на архив.
 
+.PARAMETER Beta
+    Бета-канал: пишет version-beta.json вместо version.json, тег и имена файлов
+    получают суффикс -beta. Собирается и коммитится в ветке dev, до того как
+    попадёт в main. Стабильный канал (version.json) этот файл не видит и не трогает —
+    пользователи с включённым тумблером «бета-обновления» подтянут её независимо.
+
 .EXAMPLE
     .\release.ps1 -Version 1.1.0 -Notes "Тесты сети, игровой режим, трей" -Repo togram251/netaudit
+
+.EXAMPLE
+    .\release.ps1 -Version 1.1.0 -Notes "Пробуем новый тест MTU" -Beta
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Version,
@@ -29,18 +38,21 @@ param(
     # Чужой пользователь сертификат не доверяет, так что подпись только вредит.
     # Флаг оставлен на случай купленного коммерческого сертификата или раздачи
     # узкому кругу машин, где сертификат уже доверен через sign-setup.ps1.
-    [switch]$Sign
+    [switch]$Sign,
+    [switch]$Beta
 )
 
 $ErrorActionPreference = 'Stop'
 
-$root    = $PSScriptRoot
-$project = Join-Path $root "NetAudit.App\NetAudit.App.csproj"
-$distDir = Join-Path $root "dist"
-$outName = "NetAudit-v$Version"
-$outDir  = Join-Path $distDir $outName
-$rid     = "win-x64"
-$zipPath = Join-Path $distDir "$outName-$rid.zip"
+$root     = $PSScriptRoot
+$project  = Join-Path $root "NetAudit.App\NetAudit.App.csproj"
+$distDir  = Join-Path $root "dist"
+$suffix   = if ($Beta) { "-beta" } else { "" }
+$tag      = "v$Version$suffix"
+$outName  = "NetAudit-v$Version$suffix"
+$outDir   = Join-Path $distDir $outName
+$rid      = "win-x64"
+$zipPath  = Join-Path $distDir "$outName-$rid.zip"
 
 Write-Host ""
 Write-Host "=== NetAudit $Version ===" -ForegroundColor Cyan
@@ -179,11 +191,12 @@ if (-not $iscc) {
     }
 }
 
-# ── 6. version.json ───────────────────────────────────────────────────────
+# ── 6. version.json / version-beta.json ───────────────────────────────────
+$versionFileName = if ($Beta) { "version-beta.json" } else { "version.json" }
 Write-Host ""
-Write-Host "[6/6] version.json..." -ForegroundColor Cyan
+Write-Host "[6/6] $versionFileName..." -ForegroundColor Cyan
 
-$downloadUrl = "https://github.com/$Repo/releases/download/v$Version/$outName-$rid.zip"
+$downloadUrl = "https://github.com/$Repo/releases/download/$tag/$outName-$rid.zip"
 
 $json = [ordered]@{
     version     = $Version
@@ -192,22 +205,28 @@ $json = [ordered]@{
     sha256      = $sha
 } | ConvertTo-Json
 
-$versionFile = Join-Path $root "version.json"
+$versionFile = Join-Path $root $versionFileName
 [System.IO.File]::WriteAllText($versionFile, $json, [System.Text.UTF8Encoding]::new($false))
 Write-Host "  обновлён $versionFile" -ForegroundColor Green
 
 # ── Что делать дальше ─────────────────────────────────────────────────────
+$branch = if ($Beta) { "dev" } else { "main" }
 Write-Host ""
 Write-Host "Дальше:" -ForegroundColor Cyan
-Write-Host "  1. git add -A; git commit -m ""Релиз $Version""; git push"
+Write-Host "  1. git checkout $branch; git add -A; git commit -m ""$(if ($Beta) { "Бета $Version" } else { "Релиз $Version" })""; git push"
 if ($setupPath) {
-    Write-Host "  2. gh release create v$Version ""$setupPath"" ""$zipPath"" --title ""NetAudit $Version"" --notes ""$Notes"""
+    Write-Host "  2. gh release create $tag ""$setupPath"" ""$zipPath"" --title ""NetAudit $Version$suffix"" --notes ""$Notes""$(if ($Beta) { " --prerelease" })"
     Write-Host "     (установщик первым — GitHub показывает его верхним в списке файлов)"
 } else {
-    Write-Host "  2. gh release create v$Version ""$zipPath"" --title ""NetAudit $Version"" --notes ""$Notes"""
+    Write-Host "  2. gh release create $tag ""$zipPath"" --title ""NetAudit $Version$suffix"" --notes ""$Notes""$(if ($Beta) { " --prerelease" })"
 }
 Write-Host ""
-Write-Host "  version.json должен лежать в ветке по адресу, указанном в настройках"
-Write-Host "  приложения (UpdateCheckUrl). Ссылка на сырой файл выглядит так:"
-Write-Host "  https://raw.githubusercontent.com/$Repo/main/NetAudit/version.json" -ForegroundColor Yellow
+Write-Host "  $versionFileName должен лежать в ветке $branch по адресу, указанном в настройках"
+Write-Host "  приложения ($(if ($Beta) { "UpdateCheckUrlBeta" } else { "UpdateCheckUrl" })). Ссылка на сырой файл выглядит так:"
+Write-Host "  https://raw.githubusercontent.com/$Repo/$branch/NetAudit/$versionFileName" -ForegroundColor Yellow
+if (-not $Beta) {
+    Write-Host ""
+    Write-Host "  Готовили в dev? Перед этим релизом перенесите изменения в main:" -ForegroundColor Yellow
+    Write-Host "  git checkout main; git merge dev; git push"
+}
 Write-Host ""

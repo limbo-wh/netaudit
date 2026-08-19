@@ -25,8 +25,9 @@ app_lan/                                  ← корень git-репозито�
 ├── 2026-08-16_netaudit_windows_инструкция_и_ТЗ.md    рабочее ТЗ
 └── NetAudit/
     ├── NetAudit.slnx
-    ├── version.json                      манифест обновления: version/notes/downloadUrl/sha256
-    ├── release.ps1                       сборка: publish → (опц. подпись) → zip → установщик → SHA-256 → version.json
+    ├── version.json                      манифест обновления, стабильный канал (ветка main)
+    ├── version-beta.json                 манифест обновления, бета-канал (ветка dev) — появляется после первого -Beta релиза
+    ├── release.ps1                       сборка: publish → (опц. подпись) → zip → установщик → SHA-256 → version.json/-beta.json (флаг -Beta)
     ├── sign-setup.ps1                    создание сертификата подписи (для -Sign, узкий круг машин)
     ├── trust-cert.ps1                    импорт сертификата в доверенные (только при -Sign)
     ├── installer/

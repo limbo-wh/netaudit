@@ -1158,7 +1158,7 @@ public partial class MainWindow : Window
 
     private async Task CheckForUpdateAsync()
     {
-        string url = _settings.UpdateCheckUrl;
+        string url = _settings.EffectiveUpdateCheckUrl;
         if (string.IsNullOrWhiteSpace(url)) return;
 
         var current = System.Reflection.Assembly

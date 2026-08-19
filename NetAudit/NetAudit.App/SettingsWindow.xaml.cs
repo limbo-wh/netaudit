@@ -127,6 +127,9 @@ public partial class SettingsWindow : Window
         _settings.AutoStart   = StartupManager.IsEnabled();
         ChkAutoStart.IsChecked = _settings.AutoStart;
         UpdateTrayAvailability();
+
+        // Обновления
+        ChkBetaUpdates.IsChecked = _settings.UseBetaUpdates;
     }
 
     private void UpdateTrayAvailability()
@@ -158,6 +161,7 @@ public partial class SettingsWindow : Window
             ChkOvFps, ChkOvCpu, ChkOvGpu, ChkOvRam, ChkOvNetRx, ChkOvNetTx,
             ChkOvGwPing, ChkOvGwLoss, ChkOvCfPing, ChkOvCfLoss,
             ChkTray, ChkMinimizeToTray, ChkCloseToTray, ChkAutoStart, ChkStartMinimized,
+            ChkBetaUpdates,
         ];
 
         foreach (var box in boxes)
@@ -284,6 +288,8 @@ public partial class SettingsWindow : Window
         _settings.CloseToTray    = ChkCloseToTray.IsChecked == true;
         _settings.StartMinimized = ChkStartMinimized.IsChecked == true;
         _settings.AutoStart      = ChkAutoStart.IsChecked == true;
+
+        _settings.UseBetaUpdates = ChkBetaUpdates.IsChecked == true;
     }
 
     // ── Кнопки ────────────────────────────────────────────────────────────
