@@ -108,6 +108,8 @@ public partial class SettingsWindow : Window
         ChkOvFps.IsChecked    = _settings.OvShowFps;
         ChkOvCpu.IsChecked    = _settings.OvShowCpu;
         ChkOvGpu.IsChecked    = _settings.OvShowGpu;
+        ChkOvCpuTemp.IsChecked = _settings.OvShowCpuTemp;
+        ChkOvGpuTemp.IsChecked = _settings.OvShowGpuTemp;
         ChkOvRam.IsChecked    = _settings.OvShowRam;
         ChkOvNetRx.IsChecked  = _settings.OvShowNetRx;
         ChkOvNetTx.IsChecked  = _settings.OvShowNetTx;
@@ -158,7 +160,7 @@ public partial class SettingsWindow : Window
             ChkLogEnabled, ChkLogImportant,
             ChkShowGw, ChkShowCf, ChkShowNet, ChkShowCpu, ChkShowRam,
             ChkOverlayEnabled,
-            ChkOvFps, ChkOvCpu, ChkOvGpu, ChkOvRam, ChkOvNetRx, ChkOvNetTx,
+            ChkOvFps, ChkOvCpu, ChkOvGpu, ChkOvCpuTemp, ChkOvGpuTemp, ChkOvRam, ChkOvNetRx, ChkOvNetTx,
             ChkOvGwPing, ChkOvGwLoss, ChkOvCfPing, ChkOvCfLoss,
             ChkTray, ChkMinimizeToTray, ChkCloseToTray, ChkAutoStart, ChkStartMinimized,
             ChkBetaUpdates,
@@ -275,6 +277,8 @@ public partial class SettingsWindow : Window
         _settings.OvShowFps    = ChkOvFps.IsChecked == true;
         _settings.OvShowCpu    = ChkOvCpu.IsChecked == true;
         _settings.OvShowGpu    = ChkOvGpu.IsChecked == true;
+        _settings.OvShowCpuTemp = ChkOvCpuTemp.IsChecked == true;
+        _settings.OvShowGpuTemp = ChkOvGpuTemp.IsChecked == true;
         _settings.OvShowRam    = ChkOvRam.IsChecked == true;
         _settings.OvShowNetRx  = ChkOvNetRx.IsChecked == true;
         _settings.OvShowNetTx  = ChkOvNetTx.IsChecked == true;

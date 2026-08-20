@@ -634,6 +634,7 @@ public partial class MainWindow : Window
             double gwLoss = gwS.sent > 0 ? gwS.lost * 100.0 / gwS.sent : 0;
             double cfLoss = cfS.sent > 0 ? cfS.lost * 100.0 / cfS.sent : 0;
             _overlay?.Push(snap.CpuPercent, snap.GpuPercent,
+                           snap.CpuTempC, snap.GpuTempC,
                            snap.RamUsedGb, snap.RamTotalGb,
                            snap.RxMBps, snap.TxMBps,
                            _gwLastRtt, _cfLastRtt,

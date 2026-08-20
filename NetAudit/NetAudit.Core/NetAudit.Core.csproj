@@ -15,6 +15,10 @@
     <!-- Счётчик FPS. Читает события Present из ETW — так же, как это делает
          PresentMon от Microsoft. В процесс игры при этом ничего не внедряется. -->
     <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.2.5" />
+    <!-- Температура CPU/GPU. Грузит свой драйвер ядра (WinRing0) для доступа к MSR/SMBus —
+         тот же класс требования прав администратора, что у счётчика FPS, драйвер не встаёт
+         без них. В процесс игры ничего не внедряет. -->
+    <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.4" />
   </ItemGroup>
 
 </Project>

@@ -12,5 +12,8 @@ public record SystemSnapshot(
     DateTimeOffset Timestamp,
     // Кадров в секунду. NaN — счётчик выключен, нет прав администратора
     // или на экране нет ничего рисующего
-    double Fps = double.NaN
+    double Fps = double.NaN,
+    // Температура CPU/GPU, °C. NaN — нет прав администратора или датчик не найден
+    double CpuTempC = double.NaN,
+    double GpuTempC = double.NaN
 );

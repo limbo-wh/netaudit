@@ -45,7 +45,7 @@ app_lan/                                  ← корень git-репозито�
     │   │                                  после сбоя через своё состояние на диске
     │   ├── Models/
     │   │   ├── PingResult.cs             Target, RttMs?, Success, Timestamp
-    │   │   ├── SystemSnapshot.cs         CPU/GPU/RAM/сеть/батарея/FPS
+    │   │   ├── SystemSnapshot.cs         CPU/GPU/RAM/сеть/батарея/FPS/темп. CPU и GPU
     │   │   ├── HardwareInfo.cs           CPU/GPU/RAM/ОС/материнка
     │   │   ├── WifiInfo.cs               SSID, RSSI, канал, band, link rate
     │   │   └── ProcessEntry.cs           имя, CPU%, RAM МБ
@@ -55,6 +55,7 @@ app_lan/                                  ← корень git-репозито�
     │   │   ├── SystemMetricsProbe.cs     CPU/RAM/батарея
     │   │   ├── GpuProbe.cs               загрузка GPU одним ReadCategory
     │   │   ├── FpsProbe.cs               кадры по событиям Present из ETW, нужен админ
+    │   │   ├── TemperatureProbe.cs       температура CPU/GPU, LibreHardwareMonitorLib, нужен админ
     │   │   ├── NetworkSpeedProbe.cs      дельта BytesReceived/Sent
     │   │   ├── WifiProbe.cs              netsh, только при наличии Wi-Fi адаптера
     │   │   ├── HardwareProbe.cs          WMI, одноразовый сбор
@@ -67,7 +68,8 @@ app_lan/                                  ← корень git-репозито�
     │   │   ├── TracerouteTest.cs         пинг с растущим TTL + вердикт по участкам
     │   │   ├── MtuTest.cs                двоичный поиск размера пакета без дробления
     │   │   ├── SystemBenchTest.cs        CPU/RAM/диск, проверка на троттлинг
-    │   │   └── NetworkResetService.cs    сброс сети через повышенный PowerShell
+    │   │   ├── NetworkResetService.cs    сброс сети через повышенный PowerShell
+    │   │   └── RamCacheService.cs        очистка standby list через повышенный PowerShell
     │   ├── GameMode/GameModeDetector.cs  полноэкранное приложение на переднем плане
     │   ├── Scheduler/
     │   │   ├── ProbeScheduler.cs         тик 250 мс, шлюз + 1.1.1.1 параллельно

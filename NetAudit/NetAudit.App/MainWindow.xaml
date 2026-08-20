@@ -867,6 +867,12 @@
                                     Click="OnNetworkReset" Style="{StaticResource TestBtnDanger}"
                                     ToolTip="Перезапускает сеть, не перезагружая Windows. Потребуются права администратора."/>
 
+                            <TextBlock Text="ПАМЯТЬ" Style="{StaticResource TestGroup}"/>
+
+                            <Button Content="Очистить кэш ОЗУ" Click="OnClearRamCache"
+                                    Style="{StaticResource TestBtn}"
+                                    ToolTip="Освобождает страницы памяти, которые Windows держит про запас (список ожидания). Работающие программы не трогает. Потребуются права администратора."/>
+
                             <TextBlock Text="ПРОЧЕЕ" Style="{StaticResource TestGroup}"/>
 
                             <Button Content="Счётчик FPS: состояние" Click="OnFpsStatus"

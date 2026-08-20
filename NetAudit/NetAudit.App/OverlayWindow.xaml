@@ -61,6 +61,24 @@
                 <TextBlock x:Name="OvGpu" Grid.Column="1" Style="{StaticResource OvValue}"/>
             </Grid>
 
+            <Grid x:Name="RowCpuTemp" Margin="0,1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="OvLabelCol"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="LblCpuTemp" Text="Темп. CPU" Style="{StaticResource OvLabel}"/>
+                <TextBlock x:Name="OvCpuTemp" Grid.Column="1" Style="{StaticResource OvValue}"/>
+            </Grid>
+
+            <Grid x:Name="RowGpuTemp" Margin="0,1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="OvLabelCol"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="LblGpuTemp" Text="Темп. GPU" Style="{StaticResource OvLabel}"/>
+                <TextBlock x:Name="OvGpuTemp" Grid.Column="1" Style="{StaticResource OvValue}"/>
+            </Grid>
+
             <Grid x:Name="RowRam" Margin="0,1">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" SharedSizeGroup="OvLabelCol"/>

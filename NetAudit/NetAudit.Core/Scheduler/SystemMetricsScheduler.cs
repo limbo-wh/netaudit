@@ -10,6 +10,7 @@ public sealed class SystemMetricsScheduler : IAsyncDisposable
     private readonly WifiProbe               _wifiProbe  = new();
     private readonly GpuProbe                _gpuProbe   = new();
     private readonly FpsProbe                _fpsProbe   = new();
+    private readonly TemperatureProbe        _tempProbe  = new();
     private readonly CancellationTokenSource _cts        = new();
     private Task? _metricsTask;
     private Task? _wifiTask;
@@ -68,6 +69,7 @@ public sealed class SystemMetricsScheduler : IAsyncDisposable
     private async Task RunMetricsAsync(CancellationToken ct)
     {
         bool gpuReady = false;
+        bool tempReady = false;
         using var timer = new PeriodicTimer(MetricsFast);
         while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
         {
@@ -76,17 +78,23 @@ public sealed class SystemMetricsScheduler : IAsyncDisposable
                 var wanted = _slowMode ? MetricsSlow : MetricsFast;
                 if (timer.Period != wanted) timer.Period = wanted;
 
-                // Инициализируем GPU-счётчики в фоне при первом тике
+                // Инициализируем GPU-счётчики и датчики температуры в фоне при первом тике
                 if (!gpuReady)
                 {
                     await Task.Run(_gpuProbe.Initialize, ct).ConfigureAwait(false);
                     gpuReady = true;
+                }
+                if (!tempReady)
+                {
+                    await Task.Run(_tempProbe.Initialize, ct).ConfigureAwait(false);
+                    tempReady = true;
                 }
 
                 var (rx, tx)              = _speedProbe.Sample();
                 var (cpu, ramUsed, total) = _sysProbe.Sample();
                 var (bat, charging, _)    = _sysProbe.GetBattery();
                 float gpu                 = _gpuProbe.Sample();
+                var (cpuTemp, gpuTemp)    = _tempProbe.Sample();
 
                 // Кадры считаем у процесса на переднем плане — им и является игра
                 double fps = _fpsProbe.Available
@@ -94,7 +102,8 @@ public sealed class SystemMetricsScheduler : IAsyncDisposable
                     : double.NaN;
 
                 SnapshotReady?.Invoke(new SystemSnapshot(
-                    rx, tx, cpu, gpu, ramUsed, total, bat, charging, DateTimeOffset.UtcNow, fps));
+                    rx, tx, cpu, gpu, ramUsed, total, bat, charging, DateTimeOffset.UtcNow,
+                    fps, cpuTemp, gpuTemp));
             }
             catch { }
         }
@@ -121,6 +130,7 @@ public sealed class SystemMetricsScheduler : IAsyncDisposable
         await Task.WhenAll(tasks).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         _gpuProbe.Dispose();
         _fpsProbe.Dispose();
+        _tempProbe.Dispose();
         _cts.Dispose();
     }
 }
