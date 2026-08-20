@@ -226,6 +226,10 @@
                               ToolTip="Загрузка процессора."/>
                     <CheckBox x:Name="ChkOvGpu"   Content="Видеокарта (%)"
                               ToolTip="Загрузка GPU (Performance Counters)."/>
+                    <CheckBox x:Name="ChkOvCpuTemp" Content="Темп. CPU (°C)"
+                              ToolTip="Температура процессора. Нужны права администратора — драйвер датчиков без них не встаёт, строка покажет прочерк."/>
+                    <CheckBox x:Name="ChkOvGpuTemp" Content="Темп. GPU (°C)"
+                              ToolTip="Температура видеокарты. Тоже требует прав администратора."/>
                     <CheckBox x:Name="ChkOvRam"   Content="Память (ГБ)"
                               ToolTip="Используемое ОЗУ."/>
                     <CheckBox x:Name="ChkOvNetRx" Content="↓ Приём (МБ/с)"

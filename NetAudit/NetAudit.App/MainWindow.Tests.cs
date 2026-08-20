@@ -324,6 +324,61 @@ public partial class MainWindow
         AppendEventLog($"⟳ Шлюз сменился на {gateway}, пробы перезапущены", BrushYellow);
     }
 
+    // ── Память ────────────────────────────────────────────────────────────
+
+    private async void OnClearRamCache(object sender, RoutedEventArgs e)
+    {
+        if (TestRunning)
+        {
+            MessageBox.Show(this, "Сначала дождитесь конца текущего теста.", "NetAudit",
+                            MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var answer = MessageBox.Show(this,
+            "Освободит страницы памяти, которые Windows держит про запас (список ожидания).\n" +
+            "Работающие программы это не затронет.\n\n" +
+            "Потребуются права администратора. Продолжить?",
+            "Очистка кэша ОЗУ",
+            MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel);
+
+        if (answer != MessageBoxResult.OK) return;
+
+        BottomTabs.SelectedItem = TestTab;
+
+        _testCts = new CancellationTokenSource();
+        SetTestUiBusy(true);
+        TestStatusLbl.Text = "Очистка кэша ОЗУ…";
+
+        var progress = new Progress<TestLine>(Emit);
+
+        try
+        {
+            Emit(TestLine.Empty);
+            Emit(TestLine.Dim(new string('═', 72)));
+            await new RamCacheService().RunAsync(progress, _testCts.Token);
+            AppendEventLog("⟳ Очищен кэш оперативной памяти", BrushYellow);
+        }
+        catch (RamCacheService.CancelledByUserException)
+        {
+            // Строка про отмену уже выведена самим сервисом
+        }
+        catch (OperationCanceledException)
+        {
+            Emit(TestLine.Warn("■ Остановлено"));
+        }
+        catch (Exception ex)
+        {
+            Emit(TestLine.Bad($"Не выполнилось: {ex.Message}"));
+        }
+        finally
+        {
+            _testCts?.Dispose();
+            _testCts = null;
+            SetTestUiBusy(false);
+        }
+    }
+
     // ── Прочее ────────────────────────────────────────────────────────────
 
     private async void OnCheckUpdate(object sender, RoutedEventArgs e)

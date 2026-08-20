@@ -41,6 +41,9 @@ public sealed class AppSettings
     public bool   OvShowFps      { get; set; } = true;
     public bool   OvShowCpu      { get; set; } = true;
     public bool   OvShowGpu      { get; set; } = true;
+    /// <summary>Температура CPU/GPU. Работает только с правами администратора — см. TemperatureProbe.</summary>
+    public bool   OvShowCpuTemp  { get; set; } = true;
+    public bool   OvShowGpuTemp  { get; set; } = true;
     public bool   OvShowRam      { get; set; } = true;
     public bool   OvShowNetRx    { get; set; } = true;
     public bool   OvShowNetTx    { get; set; } = true;
@@ -132,6 +135,8 @@ public sealed class AppSettings
         OvShowFps = s.OvShowFps;
         OvShowCpu = s.OvShowCpu;
         OvShowGpu = s.OvShowGpu;
+        OvShowCpuTemp = s.OvShowCpuTemp;
+        OvShowGpuTemp = s.OvShowGpuTemp;
         OvShowRam = s.OvShowRam;
         OvShowNetRx = s.OvShowNetRx;
         OvShowNetTx = s.OvShowNetTx;

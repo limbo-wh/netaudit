@@ -116,7 +116,8 @@ public partial class OverlayWindow : Window
         _settings.Save();
     }
 
-    public void Push(float cpu, float gpu, double ramUsed, double ramTotal,
+    public void Push(float cpu, float gpu, double cpuTemp, double gpuTemp,
+                     double ramUsed, double ramTotal,
                      double rxMBps, double txMBps,
                      double? gwMs, double? cfMs,
                      double gwLossPct, double cfLossPct,
@@ -131,6 +132,10 @@ public partial class OverlayWindow : Window
 
             OvGpu.Text       = gpu > 0 ? $"{gpu:F0}%" : "—";
             OvGpu.Foreground = gpu < 60 ? BrushGreen : gpu < 85 ? BrushYellow : BrushRed;
+
+            // Пороги под типичный гейминг-режим: выше — троттлинг уже рядом
+            ApplyTemp(OvCpuTemp, cpuTemp, warnAt: 70, badAt: 85);
+            ApplyTemp(OvGpuTemp, gpuTemp, warnAt: 75, badAt: 85);
 
             OvRam.Text = ramTotal > 0 ? $"{ramUsed:F1} / {ramTotal:F1} ГБ" : "—";
             double ramPct = ramTotal > 0 ? ramUsed / ramTotal * 100 : 0;
@@ -173,6 +178,23 @@ public partial class OverlayWindow : Window
         OvFps.Foreground = fps >= 55 ? BrushGreen : fps >= 30 ? BrushYellow : BrushRed;
     }
 
+    /// <summary>
+    /// Температура CPU/GPU. Прочерк означает не «0°C», а «нет данных»: нужны права
+    /// администратора для драйвера датчиков (см. TemperatureProbe) либо строка выключена.
+    /// </summary>
+    private static void ApplyTemp(System.Windows.Controls.TextBlock tb, double c, double warnAt, double badAt)
+    {
+        if (double.IsNaN(c) || c <= 0)
+        {
+            tb.Text       = "—";
+            tb.Foreground = BrushDim;
+            return;
+        }
+
+        tb.Text       = $"{c:F0}°C";
+        tb.Foreground = c < warnAt ? BrushGreen : c < badAt ? BrushYellow : BrushRed;
+    }
+
     /// <summary>Потери за сессию. Порог зелёного жёсткий: для игр даже 1% уже заметен.</summary>
     private static void ApplyLoss(System.Windows.Controls.TextBlock tb, double lossPct)
     {
@@ -186,16 +208,18 @@ public partial class OverlayWindow : Window
         Opacity = Math.Clamp(s.OverlayOpacity, 0.15, 1.0);
 
         double fs = s.OverlayFontSize;
-        foreach (var tb in new[] { OvFps, OvCpu, OvGpu, OvRam, OvRx, OvTx,
+        foreach (var tb in new[] { OvFps, OvCpu, OvGpu, OvCpuTemp, OvGpuTemp, OvRam, OvRx, OvTx,
                                    OvGw, OvGwLoss, OvCf, OvCfLoss,
-                                   LblFps, LblCpu, LblGpu, LblRam, LblRx, LblTx,
+                                   LblFps, LblCpu, LblGpu, LblCpuTemp, LblGpuTemp, LblRam, LblRx, LblTx,
                                    LblGw, LblGwLoss, LblCf, LblCfLoss })
             tb.FontSize = fs;
 
-        SetRow(RowFps,    s.OvShowFps);
-        SetRow(RowCpu,    s.OvShowCpu);
-        SetRow(RowGpu,    s.OvShowGpu);
-        SetRow(RowRam,    s.OvShowRam);
+        SetRow(RowFps,     s.OvShowFps);
+        SetRow(RowCpu,     s.OvShowCpu);
+        SetRow(RowGpu,     s.OvShowGpu);
+        SetRow(RowCpuTemp, s.OvShowCpuTemp);
+        SetRow(RowGpuTemp, s.OvShowGpuTemp);
+        SetRow(RowRam,     s.OvShowRam);
         SetRow(RowRx,     s.OvShowNetRx);
         SetRow(RowTx,     s.OvShowNetTx);
         SetRow(RowGw,     s.OvShowGwPing);
