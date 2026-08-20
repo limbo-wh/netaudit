@@ -1,10 +1,34 @@
+using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 
 namespace NetAudit.App;
 
 public partial class SettingsWindow : Window
 {
+    /// <summary>Одна строка перетаскиваемого списка метрик оверлея.</summary>
+    private sealed class MetricItem(string key, string label, string tooltip, bool visible) : INotifyPropertyChanged
+    {
+        public string Key     { get; } = key;
+        public string Label   { get; } = label;
+        public string Tooltip { get; } = tooltip;
+
+        private bool _visible = visible;
+        public bool Visible
+        {
+            get => _visible;
+            set { _visible = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Visible))); }
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+    }
+
+    private readonly ObservableCollection<MetricItem> _metrics = [];
+    private Point _metricDragStart;
+    private MetricItem? _metricDragItem;
+
     /// <summary>Кандидаты для хоткеев: A-Z и 0-9. Значения совпадают с виртуальными кодами клавиш Windows.</summary>
     private static readonly (string Label, uint Vk)[] HotkeyKeyOptions =
         [.. Enumerable.Range('A', 26).Select(c => (((char)c).ToString(), (uint)c))
@@ -104,19 +128,16 @@ public partial class SettingsWindow : Window
         FillHotkeyCombo(CmbHkCorner3, _settings.HotkeyCorner3Vk);
         FillHotkeyCombo(CmbHkCorner4, _settings.HotkeyCorner4Vk);
 
-        // Метрики
-        ChkOvFps.IsChecked    = _settings.OvShowFps;
-        ChkOvCpu.IsChecked    = _settings.OvShowCpu;
-        ChkOvGpu.IsChecked    = _settings.OvShowGpu;
-        ChkOvCpuTemp.IsChecked = _settings.OvShowCpuTemp;
-        ChkOvGpuTemp.IsChecked = _settings.OvShowGpuTemp;
-        ChkOvRam.IsChecked    = _settings.OvShowRam;
-        ChkOvNetRx.IsChecked  = _settings.OvShowNetRx;
-        ChkOvNetTx.IsChecked  = _settings.OvShowNetTx;
-        ChkOvGwPing.IsChecked = _settings.OvShowGwPing;
-        ChkOvGwLoss.IsChecked = _settings.OvShowGwLoss;
-        ChkOvCfPing.IsChecked = _settings.OvShowCfPing;
-        ChkOvCfLoss.IsChecked = _settings.OvShowCfLoss;
+        // Метрики — порядок из настроек (или по умолчанию), видимость по ключу
+        _metrics.Clear();
+        foreach (var key in OverlayMetrics.Normalize(_settings.OverlayMetricOrder))
+        {
+            var (_, label, tooltip) = Array.Find(OverlayMetrics.Catalog, c => c.Key == key);
+            var item = new MetricItem(key, label, tooltip, GetMetricVisible(key));
+            item.PropertyChanged += (_, __) => ApplyLive();
+            _metrics.Add(item);
+        }
+        MetricsOrderList.ItemsSource = _metrics;
 
         // Трей и автозапуск
         ChkTray.IsChecked            = _settings.TrayEnabled;
@@ -160,8 +181,6 @@ public partial class SettingsWindow : Window
             ChkLogEnabled, ChkLogImportant,
             ChkShowGw, ChkShowCf, ChkShowNet, ChkShowCpu, ChkShowRam,
             ChkOverlayEnabled,
-            ChkOvFps, ChkOvCpu, ChkOvGpu, ChkOvCpuTemp, ChkOvGpuTemp, ChkOvRam, ChkOvNetRx, ChkOvNetTx,
-            ChkOvGwPing, ChkOvGwLoss, ChkOvCfPing, ChkOvCfLoss,
             ChkTray, ChkMinimizeToTray, ChkCloseToTray, ChkAutoStart, ChkStartMinimized,
             ChkBetaUpdates,
         ];
@@ -274,18 +293,8 @@ public partial class SettingsWindow : Window
         if (SelectedVk(CmbHkCorner3) is uint hkC3)      _settings.HotkeyCorner3Vk = hkC3;
         if (SelectedVk(CmbHkCorner4) is uint hkC4)      _settings.HotkeyCorner4Vk = hkC4;
 
-        _settings.OvShowFps    = ChkOvFps.IsChecked == true;
-        _settings.OvShowCpu    = ChkOvCpu.IsChecked == true;
-        _settings.OvShowGpu    = ChkOvGpu.IsChecked == true;
-        _settings.OvShowCpuTemp = ChkOvCpuTemp.IsChecked == true;
-        _settings.OvShowGpuTemp = ChkOvGpuTemp.IsChecked == true;
-        _settings.OvShowRam    = ChkOvRam.IsChecked == true;
-        _settings.OvShowNetRx  = ChkOvNetRx.IsChecked == true;
-        _settings.OvShowNetTx  = ChkOvNetTx.IsChecked == true;
-        _settings.OvShowGwPing = ChkOvGwPing.IsChecked == true;
-        _settings.OvShowGwLoss = ChkOvGwLoss.IsChecked == true;
-        _settings.OvShowCfPing = ChkOvCfPing.IsChecked == true;
-        _settings.OvShowCfLoss = ChkOvCfLoss.IsChecked == true;
+        foreach (var m in _metrics) SetMetricVisible(m.Key, m.Visible);
+        _settings.OverlayMetricOrder = [.. _metrics.Select(m => m.Key)];
 
         _settings.TrayEnabled    = ChkTray.IsChecked == true;
         _settings.MinimizeToTray = ChkMinimizeToTray.IsChecked == true;
@@ -294,6 +303,91 @@ public partial class SettingsWindow : Window
         _settings.AutoStart      = ChkAutoStart.IsChecked == true;
 
         _settings.UseBetaUpdates = ChkBetaUpdates.IsChecked == true;
+    }
+
+    // ── Метрики оверлея: видимость по ключу ─────────────────────────────────
+    // Ключи per-метрика вместо словаря — bool-поля AppSettings уже разложены по
+    // отдельным свойствам ради читаемого settings.json, ломать это не стали.
+
+    private bool GetMetricVisible(string key) => key switch
+    {
+        "Fps"     => _settings.OvShowFps,
+        "Cpu"     => _settings.OvShowCpu,
+        "Gpu"     => _settings.OvShowGpu,
+        "CpuTemp" => _settings.OvShowCpuTemp,
+        "GpuTemp" => _settings.OvShowGpuTemp,
+        "Ram"     => _settings.OvShowRam,
+        "NetRx"   => _settings.OvShowNetRx,
+        "NetTx"   => _settings.OvShowNetTx,
+        "GwPing"  => _settings.OvShowGwPing,
+        "GwLoss"  => _settings.OvShowGwLoss,
+        "CfPing"  => _settings.OvShowCfPing,
+        "CfLoss"  => _settings.OvShowCfLoss,
+        _         => true,
+    };
+
+    private void SetMetricVisible(string key, bool visible)
+    {
+        switch (key)
+        {
+            case "Fps":     _settings.OvShowFps     = visible; break;
+            case "Cpu":     _settings.OvShowCpu     = visible; break;
+            case "Gpu":     _settings.OvShowGpu     = visible; break;
+            case "CpuTemp": _settings.OvShowCpuTemp = visible; break;
+            case "GpuTemp": _settings.OvShowGpuTemp = visible; break;
+            case "Ram":     _settings.OvShowRam     = visible; break;
+            case "NetRx":   _settings.OvShowNetRx   = visible; break;
+            case "NetTx":   _settings.OvShowNetTx   = visible; break;
+            case "GwPing":  _settings.OvShowGwPing  = visible; break;
+            case "GwLoss":  _settings.OvShowGwLoss  = visible; break;
+            case "CfPing":  _settings.OvShowCfPing  = visible; break;
+            case "CfLoss":  _settings.OvShowCfLoss  = visible; break;
+        }
+    }
+
+    // ── Метрики оверлея: перетаскивание ──────────────────────────────────────
+    // Оверлей сам мышью не подвинуть и не нажать — он сквозной по построению
+    // (см. stack.md). Порядок строк поэтому настраивается здесь, а не хватанием
+    // прямо за оверлей.
+
+    private void OnMetricRowMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        _metricDragStart = e.GetPosition(null);
+        _metricDragItem  = (e.OriginalSource as FrameworkElement)?.DataContext as MetricItem;
+    }
+
+    private void OnMetricRowMouseMove(object sender, MouseEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed || _metricDragItem is null) return;
+
+        var pos = e.GetPosition(null);
+        if (Math.Abs(pos.X - _metricDragStart.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(pos.Y - _metricDragStart.Y) < SystemParameters.MinimumVerticalDragDistance)
+            return;
+
+        DragDrop.DoDragDrop(MetricsOrderList, _metricDragItem, DragDropEffects.Move);
+    }
+
+    private void OnMetricRowDragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = DragDropEffects.Move;
+        e.Handled = true;
+    }
+
+    private void OnMetricRowDrop(object sender, DragEventArgs e)
+    {
+        var target = (e.OriginalSource as FrameworkElement)?.DataContext as MetricItem;
+        var source = _metricDragItem;
+        _metricDragItem = null;
+
+        if (source is null || target is null || ReferenceEquals(source, target)) return;
+
+        int oldIndex = _metrics.IndexOf(source);
+        int newIndex = _metrics.IndexOf(target);
+        if (oldIndex < 0 || newIndex < 0) return;
+
+        _metrics.Move(oldIndex, newIndex);
+        ApplyLive();
     }
 
     // ── Кнопки ────────────────────────────────────────────────────────────

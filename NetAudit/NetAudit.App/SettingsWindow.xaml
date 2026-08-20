@@ -217,37 +217,32 @@
             <!-- Метрики -->
             <TextBlock Text="Метрики" Foreground="#5C7A69" FontSize="11"
                        Margin="0,10,0,2"
-                       ToolTip="Выберите, какие метрики показывать."/>
-            <UniformGrid Rows="1" Columns="2">
-                <StackPanel Margin="0,0,12,0">
-                    <CheckBox x:Name="ChkOvFps"   Content="Кадры (FPS)"
-                              ToolTip="Первая строка оверлея. Кадры считаются по событиям Windows (ETW), без вмешательства в процесс игры — но для этого нужны права администратора. Без них строка показывает прочерк."/>
-                    <CheckBox x:Name="ChkOvCpu"   Content="Процессор (%)"
-                              ToolTip="Загрузка процессора."/>
-                    <CheckBox x:Name="ChkOvGpu"   Content="Видеокарта (%)"
-                              ToolTip="Загрузка GPU (Performance Counters)."/>
-                    <CheckBox x:Name="ChkOvCpuTemp" Content="Темп. CPU (°C)"
-                              ToolTip="Температура процессора. Нужны права администратора — драйвер датчиков без них не встаёт, строка покажет прочерк."/>
-                    <CheckBox x:Name="ChkOvGpuTemp" Content="Темп. GPU (°C)"
-                              ToolTip="Температура видеокарты. Тоже требует прав администратора."/>
-                    <CheckBox x:Name="ChkOvRam"   Content="Память (ГБ)"
-                              ToolTip="Используемое ОЗУ."/>
-                    <CheckBox x:Name="ChkOvNetRx" Content="↓ Приём (МБ/с)"
-                              ToolTip="Входящий трафик."/>
-                    <CheckBox x:Name="ChkOvNetTx" Content="↑ Отдача (МБ/с)"
-                              ToolTip="Исходящий трафик."/>
-                </StackPanel>
-                <StackPanel>
-                    <CheckBox x:Name="ChkOvGwPing" Content="Шлюз (мс)"
-                              ToolTip="Задержка до роутера."/>
-                    <CheckBox x:Name="ChkOvGwLoss" Content="Потери до шлюза (%)"
-                              ToolTip="Доля потерянных пакетов до роутера за сессию. Растёт — виноват Wi-Fi, кабель или роутер."/>
-                    <CheckBox x:Name="ChkOvCfPing" Content="Интернет (мс)"
-                              ToolTip="Задержка до Cloudflare."/>
-                    <CheckBox x:Name="ChkOvCfLoss" Content="Потери до сети (%)"
-                              ToolTip="Доля потерянных пакетов до 1.1.1.1 за сессию. Растёт при целом шлюзе — виноват провайдер."/>
-                </StackPanel>
-            </UniformGrid>
+                       ToolTip="Отметьте, что показывать. Перетащите строку за ⠿, чтобы изменить порядок сверху вниз в оверлее."/>
+            <ListBox x:Name="MetricsOrderList" MaxHeight="300"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     AllowDrop="True"
+                     PreviewMouseLeftButtonDown="OnMetricRowMouseDown"
+                     PreviewMouseMove="OnMetricRowMouseMove"
+                     DragOver="OnMetricRowDragOver"
+                     Drop="OnMetricRowDrop">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Margin="0,1">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="⠿" FontSize="14" Foreground="#5C7A69"
+                                       Margin="0,0,8,0" VerticalAlignment="Center"
+                                       Cursor="SizeAll"
+                                       ToolTip="Перетащите, чтобы переставить строку в оверлее"/>
+                            <CheckBox Grid.Column="1" Content="{Binding Label}"
+                                      IsChecked="{Binding Visible, Mode=TwoWay}"
+                                      ToolTip="{Binding Tooltip}"/>
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
         </StackPanel>
 
         <!-- Игровой режим и разгон переехали на отдельную вкладку главного окна -->
