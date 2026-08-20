@@ -44,6 +44,25 @@ public partial class OverlayWindow : Window
 
     private IntPtr _hwnd;
 
+    private Dictionary<string, UIElement>? _rowByKey;
+
+    /// <summary>Ключ метрики (см. OverlayMetrics) → её Grid-строка в разметке.</summary>
+    private Dictionary<string, UIElement> RowByKey => _rowByKey ??= new()
+    {
+        ["Fps"]     = RowFps,
+        ["Cpu"]     = RowCpu,
+        ["Gpu"]     = RowGpu,
+        ["CpuTemp"] = RowCpuTemp,
+        ["GpuTemp"] = RowGpuTemp,
+        ["Ram"]     = RowRam,
+        ["NetRx"]   = RowRx,
+        ["NetTx"]   = RowTx,
+        ["GwPing"]  = RowGw,
+        ["GwLoss"]  = RowGwLoss,
+        ["CfPing"]  = RowCf,
+        ["CfLoss"]  = RowCfLoss,
+    };
+
     public OverlayWindow(AppSettings settings)
     {
         InitializeComponent();
@@ -227,10 +246,28 @@ public partial class OverlayWindow : Window
         SetRow(RowCf,     s.OvShowCfPing);
         SetRow(RowCfLoss, s.OvShowCfLoss);
 
+        ReorderRows(s.OverlayMetricOrder);
+
         // Скрытая строка не должна резервировать ширину в общей колонке подписей
         UpdateLayout();
     }
 
     private static void SetRow(UIElement el, bool visible) =>
         el.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>
+    /// Порядок строк — то, что пользователь настроил перетаскиванием в окне настроек.
+    /// Простая пересборка Children на каждое применение настроек: строк всего 12,
+    /// а частичный diff ради этого объёма только усложнил бы код без выгоды.
+    /// </summary>
+    private void ReorderRows(List<string> order)
+    {
+        var rows = RowByKey;
+        var effective = OverlayMetrics.Normalize(order);
+
+        MetricsPanel.Children.Clear();
+        foreach (var key in effective)
+            if (rows.TryGetValue(key, out var row))
+                MetricsPanel.Children.Add(row);
+    }
 }

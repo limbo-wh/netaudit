@@ -51,6 +51,9 @@ public sealed class AppSettings
     public bool   OvShowCfPing   { get; set; } = true;
     public bool   OvShowGwLoss   { get; set; } = true;
     public bool   OvShowCfLoss   { get; set; } = true;
+    /// <summary>Порядок строк оверлея сверху вниз, ключи — см. OverlayMetrics.Catalog.
+    /// Пользователь настраивает перетаскиванием в окне настроек.</summary>
+    public List<string> OverlayMetricOrder { get; set; } = OverlayMetrics.DefaultOrder();
 
     // ── Игровой режим ──────────────────────────────────────────────────────
     /// <summary>Замечать запуск игры и сокращать собственное потребление.</summary>
@@ -144,6 +147,7 @@ public sealed class AppSettings
         OvShowCfPing = s.OvShowCfPing;
         OvShowGwLoss = s.OvShowGwLoss;
         OvShowCfLoss = s.OvShowCfLoss;
+        OverlayMetricOrder = [.. s.OverlayMetricOrder];
 
         GameModeEnabled           = s.GameModeEnabled;
         GameModeLowerPriority     = s.GameModeLowerPriority;
