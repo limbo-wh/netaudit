@@ -63,13 +63,20 @@ Write-Host "[1/5] Сборка..." -ForegroundColor Cyan
 
 if (Test-Path $outDir) { Remove-Item $outDir -Recurse -Force }
 
+# БЕЗ PublishReadyToRun. Проверено 2026-08-25 (см. stack.md): ReadyToRun вкомпилирует
+# нативный код прямо в managed dll (Microsoft.Diagnostics.FastSerialization.dll
+# 76 КБ IL против 184 КБ с R2R), а нативный код в файле подпадает под более строгую
+# проверку Smart App Control ("did not meet the Enterprise signing level requirements",
+# события CodeIntegrity 3077/3033/3118), чем обычная управляемая сборка — ту SAC
+# пропускает по репутации. Из-за этого свежая установка падала с
+# FileLoadException прямо на первом запуске. Выигрыш R2R (чуть быстрее холодный
+# старт WPF-приложения) того не стоит.
 dotnet publish $project `
     --configuration Release `
     --runtime $rid `
     --self-contained false `
     --output $outDir `
-    "-p:Version=$Version" `
-    "-p:PublishReadyToRun=true"
+    "-p:Version=$Version"
 
 if ($LASTEXITCODE -ne 0) { Write-Host "Сборка не удалась." -ForegroundColor Red; exit 1 }
 

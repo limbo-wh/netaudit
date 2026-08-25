@@ -1,6 +1,6 @@
 {
-    "version":  "1.1.0",
-    "notes":  "Настраиваемые хоткеи, температура CPU/GPU и очистка кэша ОЗУ в оверлее и Тестах, порядок метрик оверлея перетаскиванием, запрет двух копий, бета-канал обновлений",
-    "downloadUrl":  "https://github.com/limbo-wh/netaudit/releases/download/v1.1.0/NetAudit-v1.1.0-win-x64.zip",
-    "sha256":  "1A002EB427C60E5C3D99E7CF3C2B6A5A51FEE5FE1E97DBEC5F58A8766E2C2B89"
+    "version":  "1.1.1",
+    "notes":  "Тест: сборка без ReadyToRun (диагностика блокировки Smart App Control на FastSerialization.dll)",
+    "downloadUrl":  "https://github.com/limbo-wh/netaudit/releases/download/v1.1.1/NetAudit-v1.1.1-win-x64.zip",
+    "sha256":  "267816B08C557A4E8B1E88C1EF75DE4A1EE4B1ABB47C329AF6430BDA18B2F8A8"
 }
