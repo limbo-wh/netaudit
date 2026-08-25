@@ -122,7 +122,7 @@ powershell -ExecutionPolicy Bypass -File NetAudit\release.ps1 -Version 1.1.0
 | Проект | Назначение |
 |---|---|
 | `NetAudit.Core` | Пробы, планировщики, диагностика, ETW. Без интерфейса |
-| `NetAudit.App`  | Окна WPF, оверлей, трей, настройки |
+| `NetAudit.App` | Окна WPF, оверлей, трей, настройки |
 | `NetAudit.Rtss` | Задел под вывод в оверлей RTSS. Пока заглушка |
 
 ## Чего здесь принципиально нет
