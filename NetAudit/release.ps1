@@ -23,7 +23,7 @@
     пользователи с включённым тумблером «бета-обновления» подтянут её независимо.
 
 .EXAMPLE
-    .\release.ps1 -Version 1.1.0 -Notes "Тесты сети, игровой режим, трей" -Repo togram251/netaudit
+    .\release.ps1 -Version 1.1.0 -Notes "Тесты сети, игровой режим, трей" -Repo limbo-wh/netaudit
 
 .EXAMPLE
     .\release.ps1 -Version 1.1.0 -Notes "Пробуем новый тест MTU" -Beta
