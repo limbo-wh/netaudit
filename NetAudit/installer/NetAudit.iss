@@ -5,10 +5,15 @@
 ; Версия передаётся снаружи: ISCC.exe /DMyAppVersion=1.0.4 installer\NetAudit.iss
 ;
 ; Помимо обычной установки в Program Files и записи в «Установка и удаление
-; программ», при установке создаётся задача в Планировщике заданий с
-; RunLevel=Highest — она позволяет запускать NetAudit с правами администратора
-; без запроса UAC при каждом старте (нужно только счётчику FPS в оверлее,
-; см. register-task.ps1 — там подробно объяснено, как и почему это работает).
+; программ», при установке создаются две задачи в Планировщике заданий с
+; RunLevel=Highest — они позволяют запускать NetAudit с правами администратора
+; без запроса UAC при каждом старте (нужно счётчику FPS в оверлее, температуре
+; и очистке кэша ОЗУ — см. register-task.ps1, там подробно объяснено, как и
+; почему это работает). С этой версии установленная копия ВСЕГДА запускается
+; повышенной: обычный ярлык, пункт в меню Пуск, запуск сразу после установки
+; и автозапуск с Windows — все идут через задачу планировщика, а не напрямую
+; через exe. Портативный zip (без установщика) этого не затрагивает и по-прежнему
+; запускается обычным пользователем, как и раньше.
 
 #define MyAppName "NetAudit"
 #ifndef MyAppVersion
@@ -16,6 +21,7 @@
 #endif
 #define MyAppPublisher "NetAudit"
 #define TaskName "NetAudit (администратор)"
+#define TaskNameAutostart "NetAudit (автозапуск)"
 
 [Setup]
 ; Сгенерирован один раз (2026-08-17) и не должен меняться — по нему Windows
@@ -55,7 +61,6 @@ Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Создать значок на рабочем столе"; GroupDescription: "Дополнительные значки:"
-Name: "desktopicon_admin"; Description: "Создать значок «{#TaskName}» на рабочем столе — запуск с правами администратора без запроса UAC при каждом разе, нужно для счётчика FPS"; GroupDescription: "Дополнительные значки:"
 
 [Files]
 Source: "..\dist\NetAudit-v{#MyAppVersion}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -64,19 +69,21 @@ Source: "unregister-task.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "pre-uninstall.ps1"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\NetAudit"; Filename: "{app}\NetAudit.App.exe"
-Name: "{group}\{#TaskName}"; Filename: "{sys}\schtasks.exe"; Parameters: "/Run /TN ""{#TaskName}"""; IconFilename: "{app}\NetAudit.App.exe"; Comment: "Запуск с правами администратора — нужно для счётчика FPS в оверлее"
+; Значок всегда запускает через задачу планировщика (повышенно, без UAC-запроса) -
+; не сам exe напрямую. IconFilename берёт иконку из exe, Filename — реальная цель
+Name: "{group}\NetAudit"; Filename: "{sys}\schtasks.exe"; Parameters: "/Run /TN ""{#TaskName}"""; IconFilename: "{app}\NetAudit.App.exe"; Comment: "NetAudit — запуск с правами администратора"
 Name: "{group}\Удалить NetAudit"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\NetAudit"; Filename: "{app}\NetAudit.App.exe"; Tasks: desktopicon
-Name: "{autodesktop}\{#TaskName}"; Filename: "{sys}\schtasks.exe"; Parameters: "/Run /TN ""{#TaskName}"""; IconFilename: "{app}\NetAudit.App.exe"; Tasks: desktopicon_admin
+Name: "{autodesktop}\NetAudit"; Filename: "{sys}\schtasks.exe"; Parameters: "/Run /TN ""{#TaskName}"""; IconFilename: "{app}\NetAudit.App.exe"; Tasks: desktopicon
 
 [Run]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\register-task.ps1"" -ExePath ""{app}\NetAudit.App.exe"" -TaskName ""{#TaskName}"""; Flags: runhidden waituntilterminated; StatusMsg: "Настройка запуска с правами администратора..."
-Filename: "{app}\NetAudit.App.exe"; Description: "Запустить NetAudit"; Flags: nowait postinstall skipifsilent
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\register-task.ps1"" -ExePath ""{app}\NetAudit.App.exe"" -TaskName ""{#TaskNameAutostart}"" -Arguments ""--tray"""; Flags: runhidden waituntilterminated; StatusMsg: "Настройка автозапуска..."
+Filename: "{sys}\schtasks.exe"; Parameters: "/Run /TN ""{#TaskName}"""; Description: "Запустить NetAudit"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 ; Выполняются до удаления файлов — {app}\*.ps1 ещё на месте. Сначала гарантированно
 ; закрыть процесс (CloseApplications через Restart Manager ловит не каждую
-; заблокированную DLL — проверено), потом снять задачу из планировщика
+; заблокированную DLL — проверено), потом снять обе задачи из планировщика
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\pre-uninstall.ps1"""; Flags: runhidden waituntilterminated; RunOnceId: "CloseApp"
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\unregister-task.ps1"" -TaskName ""{#TaskName}"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveScheduledTask"
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\unregister-task.ps1"" -TaskName ""{#TaskNameAutostart}"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveScheduledTaskAutostart"

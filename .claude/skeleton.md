@@ -32,7 +32,8 @@ app_lan/                                  ← корень git-репозито�
     ├── trust-cert.ps1                    импорт сертификата в доверенные (только при -Sign)
     ├── installer/
     │   ├── NetAudit.iss                  скрипт Inno Setup: Program Files, ярлыки, удаление
-    │   ├── register-task.ps1             задача в Планировщике (RunLevel=Highest) — FPS без UAC
+    │   ├── register-task.ps1             задача в Планировщике (RunLevel=Highest), вызывается дважды —
+    │   │                                 «...(администратор)» и «...(автозапуск)» с --tray
     │   ├── unregister-task.ps1           снятие задачи при удалении
     │   └── pre-uninstall.ps1             гарантированно закрывает процесс перед удалением файлов
     ├── dist/                             артефакты сборки, не версионируются
@@ -84,7 +85,8 @@ app_lan/                                  ← корень git-репозито�
     │   ├── NetAudit.ico                  значок приложения и трея, 8 размеров
     │   ├── app.manifest                  asInvoker, PerMonitorV2
     │   ├── AppSettings.cs                %LOCALAPPDATA%\NetAudit\settings.json + Clone/CopyFrom
-    │   ├── StartupManager.cs             автозапуск через HKCU\...\Run, аргумент --tray
+    │   ├── StartupManager.cs             автозапуск через HKCU\...\Run — через задачу планировщика
+    │   │                                 (повышенно), если она есть, иначе прямой exe + --tray
     │   ├── DesktopShortcut.cs            ярлык на рабочем столе через WScript.Shell, без install.bat
     │   ├── TrayIcon.cs                   NotifyIcon с меню, подсказкой и уведомлениями
     │   ├── HotkeyManager.cs              RegisterHotKey + WM_HOTKEY через HwndSource

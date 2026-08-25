@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Windows;
+using System.Windows.Navigation;
 using System.Windows.Threading;
 
 namespace NetAudit.App;
@@ -43,6 +45,19 @@ public partial class AboutWindow : Window
             CopiedLbl.Text       = "Не удалось скопировать, выделите номер вручную";
             CopiedLbl.Visibility = Visibility.Visible;
         }
+    }
+
+    private void OnLicenseClick(object sender, RequestNavigateEventArgs e)
+    {
+        try
+        {
+            // UseShellExecute=false (умолчание в .NET Core) не откроет URL — только
+            // подходящий exe напрямую. true отдаёт запуск оболочке Windows, как
+            // двойной клик по ссылке
+            Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
+        }
+        catch { /* нет браузера по умолчанию или он не настроен — не повод падать */ }
+        e.Handled = true;
     }
 
     private void OnClose(object sender, RoutedEventArgs e) => Close();
