@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Win32;
 
 namespace NetAudit.App;
@@ -11,13 +12,19 @@ namespace NetAudit.App;
 /// HKLM работал бы для всех пользователей, но потребовал бы прав администратора
 /// на каждое переключение галочки — для локальной утилиты это перебор.
 ///
-/// Планировщик заданий дал бы ещё и запуск с правами администратора без запроса UAC
-/// (это пригодилось бы счётчику FPS), но создание задания тоже требует прав.
+/// Если установщик уже зарегистрировал задачу "NetAudit (автозапуск)" в Планировщике
+/// (с 2026-08-25 это всегда так для установленных копий — см. NetAudit.iss), команда
+/// в HKCU\...\Run запускает не сам exe, а эту задачу через schtasks.exe: тот же приём,
+/// что у ярлыков на столе, только с зашитым в задачу аргументом --tray. Так автозапуск
+/// тоже получает права администратора без UAC-запроса при каждой загрузке Windows.
+/// Для портативной копии без установщика (задачи нет) — прежнее поведение: HKCU
+/// запускает exe напрямую, обычным пользователем.
 /// </summary>
 public static class StartupManager
 {
-    private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
-    private const string ValueName  = "NetAudit";
+    private const string RunKeyPath        = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string ValueName         = "NetAudit";
+    private const string AutostartTaskName = "NetAudit (автозапуск)";
 
     /// <summary>Аргумент, по которому приложение понимает, что стартовало само и окно показывать не надо.</summary>
     public const string TrayArgument = "--tray";
@@ -80,8 +87,22 @@ public static class StartupManager
 
             if (enable)
             {
-                // Кавычки обязательны: путь почти наверняка содержит пробелы
-                string cmd = hidden ? $"\"{exe}\" {TrayArgument}" : $"\"{exe}\"";
+                string cmd;
+                if (AutostartTaskExists())
+                {
+                    // Задача уже несёт --tray внутри себя (зарегистрирована установщиком
+                    // с этим аргументом) — hidden здесь ни на что не влияет, галочка
+                    // "скрыто" в настройках просто перестаёт иметь смысл для установленной
+                    // через инсталлятор копии, там автозапуск всегда в трей и всегда повышен
+                    cmd = $"\"{Environment.SystemDirectory}\\schtasks.exe\" /Run /TN \"{AutostartTaskName}\"";
+                }
+                else
+                {
+                    // Портативная копия без задачи в Планировщике — как раньше,
+                    // напрямую запускаем exe обычным пользователем. Кавычки обязательны:
+                    // путь почти наверняка содержит пробелы
+                    cmd = hidden ? $"\"{exe}\" {TrayArgument}" : $"\"{exe}\"";
+                }
                 key.SetValue(ValueName, cmd, RegistryValueKind.String);
             }
             else
@@ -95,5 +116,31 @@ public static class StartupManager
             error = ex.Message;
             return false;
         }
+    }
+
+    /// <summary>
+    /// Существует ли задача автозапуска в Планировщике. Запрос задачи прав
+    /// администратора не требует — только её создание/изменение (это уже сделал
+    /// установщик заранее). Отсутствие задачи — нормальный случай для портативной
+    /// копии, не ошибка.
+    /// </summary>
+    private static bool AutostartTaskExists()
+    {
+        try
+        {
+            var psi = new ProcessStartInfo("schtasks.exe")
+            {
+                Arguments              = $"/Query /TN \"{AutostartTaskName}\"",
+                UseShellExecute        = false,
+                CreateNoWindow         = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
+            };
+            using var p = Process.Start(psi);
+            if (p is null) return false;
+            p.WaitForExit(3000);
+            return p.ExitCode == 0;
+        }
+        catch { return false; }
     }
 }
