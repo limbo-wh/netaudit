@@ -42,6 +42,8 @@ public sealed class GameBoostService
         public int?      ToastEnabledValue { get; set; }
         public bool?     UiEffectsWasOn    { get; set; }
         public string[]  ServicesStopped   { get; set; } = [];
+        public string?   BoostedGameName             { get; set; }
+        public string?   BoostedGameOriginalPriority { get; set; }
     }
 
     // ── Включение ────────────────────────────────────────────────────────
@@ -144,8 +146,33 @@ public sealed class GameBoostService
 
         var report = new GameBoostReport();
         await RevertFromStateAsync(state, report).ConfigureAwait(false);
+        RecoverBoostedGamePriority(state, report);
         DeleteState();
         return report;
+    }
+
+    /// <summary>
+    /// Приоритет игрового процесса живёт в памяти (_boostedPid) и переживает крах
+    /// приложения не лучше остальных полей класса. В отличие от плана питания/тостов/
+    /// служб он не восстанавливался при аварийном завершении — игра так и оставалась
+    /// с повышенным приоритетом до собственного закрытия. Ищем процесс по имени,
+    /// а не по PID: после перезапуска NetAudit это тот же процесс, что и был,
+    /// но PID достоверен только в пределах одного сеанса ОС.
+    /// </summary>
+    private static void RecoverBoostedGamePriority(SavedState state, GameBoostReport report)
+    {
+        if (state.BoostedGameName is not { Length: > 0 } name) return;
+        if (state.BoostedGameOriginalPriority is not { Length: > 0 } prioText) return;
+        if (!Enum.TryParse<ProcessPriorityClass>(prioText, out var original)) return;
+
+        try
+        {
+            var proc = Process.GetProcessesByName(name).FirstOrDefault();
+            if (proc is null) return;
+            proc.PriorityClass = original;
+            report.Applied.Add($"приоритет процесса «{name}» возвращён");
+        }
+        catch { }
     }
 
     private static async Task RevertFromStateAsync(SavedState state, GameBoostReport report)
@@ -186,6 +213,14 @@ public sealed class GameBoostService
             _boostedPidOriginalPriority = proc.PriorityClass;
             proc.PriorityClass = ProcessPriorityClass.AboveNormal;
             _boostedPid = proc.Id;
+
+            // Записываем на диск тем же приёмом, что и остальные твики: если NetAudit
+            // рухнет прямо сейчас, RecoverIfDirtyAsync при следующем запуске найдёт
+            // эту запись и вернёт игре обычный приоритет по имени процесса.
+            var state = LoadState() ?? new SavedState();
+            state.BoostedGameName             = processName;
+            state.BoostedGameOriginalPriority = _boostedPidOriginalPriority.ToString();
+            SaveState(state);
         }
         catch { /* повышение приоритета — удобство, не критично если не вышло */ }
     }
@@ -200,6 +235,17 @@ public sealed class GameBoostService
             proc.PriorityClass = _boostedPidOriginalPriority;
         }
         catch { }
+
+        // Приоритет вернули штатно — запись на диске больше не нужна и не должна
+        // случайно сработать при следующем крахе, если к тому моменту буст уже
+        // не будет применён ни к одному процессу.
+        var state = LoadState();
+        if (state is not null)
+        {
+            state.BoostedGameName             = null;
+            state.BoostedGameOriginalPriority = null;
+            SaveState(state);
+        }
     }
 
     // ── План питания ─────────────────────────────────────────────────────
