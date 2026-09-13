@@ -19,6 +19,18 @@
          тот же класс требования прав администратора, что у счётчика FPS, драйвер не встаёт
          без них. В процесс игры ничего не внедряет. -->
     <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.4" />
+    <!-- Отчёт о сбоях ПК: чтение журналов Windows (System, Application) через
+         EventLogReader с XPath-запросами. Журнал System читается обычным
+         пользователем — права администратора нужны только для Security. -->
+    <PackageReference Include="System.Diagnostics.EventLog" Version="9.0.5" />
+    <!-- Нагрузка видеокарты в стресс-тесте: свой вычислительный шейдер Direct3D 11
+         на своём устройстве. Это обычное использование графического API, а не хук
+         и не внедрение в чужой процесс — красная линия проекта (см. rules.md)
+         не затрагивается. -->
+    <PackageReference Include="Vortice.D3DCompiler" Version="3.8.3" />
+    <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
+    <PackageReference Include="Vortice.Direct3D12" Version="3.8.3" />
+    <PackageReference Include="Vortice.DirectML" Version="3.8.3" />
   </ItemGroup>
 
 </Project>

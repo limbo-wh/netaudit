@@ -18,6 +18,12 @@ public partial class App : Application
             return;
         }
 
+        if (TryElevateSilently())
+        {
+            Shutdown();
+            return;
+        }
+
         DispatcherUnhandledException += OnDispatcherException;
 
         // Падения вне UI-потока диспетчер не ловит, а именно они убивают процесс молча
@@ -31,6 +37,49 @@ public partial class App : Application
         };
 
         base.OnStartup(e);
+    }
+
+    /// <summary>
+    /// Перезапускает приложение с правами администратора через задачу Планировщика,
+    /// если это возможно сделать молча. Вызывается до создания окна — иначе окно
+    /// успело бы мелькнуть и исчезнуть.
+    ///
+    /// Молча — значит без UAC-запроса: задача уже создана и указывает на этот же
+    /// файл. Если задачи нет, здесь ничего не происходит: предложение настроить
+    /// покажет главное окно, потому что спрашивать разрешение должен видимый
+    /// интерфейс, а не процесс без окон.
+    /// </summary>
+    /// <returns>true — перезапуск пошёл, этот экземпляр обязан завершиться.</returns>
+    private static bool TryElevateSilently()
+    {
+        try
+        {
+            if (ElevationService.IsElevated) return false;
+            if (ElevationService.IsRelaunch) return false;
+
+            var settings = AppSettings.Load();
+            if (!settings.AutoElevate) return false;
+            if (!ElevationService.TaskReady()) return false;
+
+            // Задача могла оказаться нерабочей — например, запрещена политикой.
+            // Без этой проверки приложение перезапускало бы себя бесконечно
+            if (ElevationService.AttemptedRecently(TimeSpan.FromMinutes(2))) return false;
+
+            ElevationService.MarkAttempt();
+
+            // Имя Mutex надо освободить раньше, чем поднимется новый экземпляр,
+            // иначе тот решит, что программа уже запущена, и молча выйдет
+            SingleInstance.ReleaseForRelaunch();
+
+            if (ElevationService.RelaunchViaTask()) return true;
+
+            // Не получилось — работаем как есть, без прав
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private void OnDispatcherException(object s, DispatcherUnhandledExceptionEventArgs e)

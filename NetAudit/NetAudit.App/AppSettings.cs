@@ -12,6 +12,18 @@ public sealed class AppSettings
     public bool LogEnabled         { get; set; } = true;
     public bool LogOnlyImportant   { get; set; } = false;
 
+    // ── Права администратора ───────────────────────────────────────────────
+    /// <summary>
+    /// Подниматься до прав администратора при запуске автоматически. Половина
+    /// возможностей без них не работает (температуры, счётчик кадров, очистка
+    /// памяти), а через задачу Планировщика это происходит без UAC-запроса —
+    /// см. <see cref="ElevationService"/>.
+    /// </summary>
+    public bool AutoElevate { get; set; } = true;
+
+    /// <summary>Предложение настроить автоповышение уже показывали — второй раз не навязываемся.</summary>
+    public bool ElevationOffered { get; set; } = false;
+
     public bool ShowGatewayGraph    { get; set; } = true;
     public bool ShowCloudflareGraph { get; set; } = true;
     public bool ShowNetworkGraph    { get; set; } = true;

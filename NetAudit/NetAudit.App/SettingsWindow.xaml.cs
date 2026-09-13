@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 
 namespace NetAudit.App;
 
@@ -151,8 +152,73 @@ public partial class SettingsWindow : Window
         ChkAutoStart.IsChecked = _settings.AutoStart;
         UpdateTrayAvailability();
 
+        // Права администратора
+        ChkAutoElevate.IsChecked = _settings.AutoElevate;
+        UpdateElevationState();
+
         // Обновления
         ChkBetaUpdates.IsChecked = _settings.UseBetaUpdates;
+    }
+
+    /// <summary>Показывает, что с правами сейчас, и какие кнопки имеют смысл.</summary>
+    private void UpdateElevationState()
+    {
+        bool elevated = ElevationService.IsElevated;
+        bool taskReady = ElevationService.TaskReady();
+
+        ElevationStateText.Text = ElevationService.DescribeState();
+        ElevationStateText.Foreground = elevated
+            ? new SolidColorBrush(Color.FromRgb(0x86, 0xD9, 0x7A))
+            : new SolidColorBrush(Color.FromRgb(0xDF, 0xC4, 0x6A));
+
+        BtnElevationSetup.IsEnabled   = !taskReady;
+        BtnElevationRemove.IsEnabled  = taskReady;
+        BtnElevationRestart.IsEnabled = taskReady && !elevated;
+    }
+
+    private void OnElevationSetupClick(object sender, RoutedEventArgs e)
+    {
+        if (ElevationService.SetupTask(out string error))
+        {
+            MessageBox.Show(this,
+                "Готово. NetAudit будет запускаться с правами администратора автоматически,\n" +
+                "без запросов Windows.\n\n" +
+                "Чтобы права заработали сейчас, нажмите «Перезапустить с правами».",
+                "NetAudit", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        else
+        {
+            MessageBox.Show(this, $"Не удалось настроить: {error}", "NetAudit",
+                            MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+
+        UpdateElevationState();
+    }
+
+    private void OnElevationRemoveClick(object sender, RoutedEventArgs e)
+    {
+        if (MessageBox.Show(this,
+                "Удалить задачу в Планировщике?\n\n" +
+                "NetAudit снова будет запускаться без прав администратора, а температуры,\n" +
+                "счётчик кадров и очистка памяти перестанут работать.",
+                "NetAudit", MessageBoxButton.OKCancel, MessageBoxImage.Question,
+                MessageBoxResult.Cancel) != MessageBoxResult.OK)
+            return;
+
+        if (!ElevationService.RemoveTask(out string error))
+            MessageBox.Show(this, $"Не удалось удалить задачу: {error}", "NetAudit",
+                            MessageBoxButton.OK, MessageBoxImage.Warning);
+
+        UpdateElevationState();
+    }
+
+    private void OnElevationRestartClick(object sender, RoutedEventArgs e)
+    {
+        if (Owner is MainWindow main)
+        {
+            Close();
+            main.RestartViaTask();
+        }
     }
 
     private void UpdateTrayAvailability()
@@ -182,7 +248,7 @@ public partial class SettingsWindow : Window
             ChkShowGw, ChkShowCf, ChkShowNet, ChkShowCpu, ChkShowRam,
             ChkOverlayEnabled,
             ChkTray, ChkMinimizeToTray, ChkCloseToTray, ChkAutoStart, ChkStartMinimized,
-            ChkBetaUpdates,
+            ChkBetaUpdates, ChkAutoElevate,
         ];
 
         foreach (var box in boxes)
@@ -303,6 +369,7 @@ public partial class SettingsWindow : Window
         _settings.AutoStart      = ChkAutoStart.IsChecked == true;
 
         _settings.UseBetaUpdates = ChkBetaUpdates.IsChecked == true;
+        _settings.AutoElevate    = ChkAutoElevate.IsChecked == true;
     }
 
     // ── Метрики оверлея: видимость по ключу ─────────────────────────────────
