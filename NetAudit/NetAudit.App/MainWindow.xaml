@@ -92,6 +92,24 @@
             </Border>
 
             <!-- Строка 3: предложить ярлык на рабочем столе (скрыт по умолчанию, один раз) -->
+            <Border Grid.Row="2" x:Name="ElevationBanner" Visibility="Collapsed"
+                    Background="#1A2E22" BorderBrush="#3A6B4A" BorderThickness="0,1,0,0"
+                    Padding="10,5" Margin="0,4,0,0">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Content="✕" Click="OnElevationDismiss"
+                            Background="Transparent" Foreground="#5C7A69" BorderBrush="Transparent"
+                            Padding="8,0" FontSize="14" Cursor="Hand"
+                            ToolTip="Скрыть — больше не предлагать. Настроить можно позже в окне настроек."/>
+                    <Button DockPanel.Dock="Right" Content="Настроить" Click="OnElevationSetup"
+                            Background="#2C5039" Foreground="#D8EADF" BorderBrush="#4FD98B"
+                            Padding="10,3" FontSize="11" Cursor="Hand" Margin="0,0,8,0"
+                            ToolTip="Создаст задачу в Планировщике заданий. Windows спросит подтверждение один раз — дальше NetAudit будет запускаться с правами администратора без запросов."/>
+                    <TextBlock Foreground="#B6CDBF" FontSize="11" VerticalAlignment="Center"
+                               TextWrapping="Wrap"
+                               Text="Температуры, счётчик кадров и очистка памяти требуют прав администратора. Настроить один раз, чтобы дальше запускалось с ними автоматически?"/>
+                </DockPanel>
+            </Border>
+
             <Border Grid.Row="2" x:Name="ShortcutBanner" Visibility="Collapsed"
                     Background="#111F18" BorderBrush="#2C5039" BorderThickness="0,1,0,0"
                     Padding="10,5" Margin="0,4,0,0">
@@ -849,6 +867,38 @@
                                     Style="{StaticResource TestBtn}"
                                     ToolTip="Одно ядро, все ядра и падение производительности за время нагрузки."/>
 
+                            <TextBlock Text="ВИДЕОКАРТА" Style="{StaticResource TestGroup}"/>
+
+                            <Button Content="▶  Полная диагностика" Click="OnGpuFullDiagnostic"
+                                    Style="{StaticResource TestBtnPrimary}"
+                                    ToolTip="Паспорт, здоровье, скорость памяти и вычислений, проверка видеопамяти шаблонами и выводы — на что карта способна в играх и в нейросетях. Занимает около минуты, карта нагружается кратковременно."/>
+                            <Button Content="Паспорт и здоровье" Click="OnGpuPassport"
+                                    Style="{StaticResource TestBtn}"
+                                    ToolTip="Модель, поколение, прошивка, драйвер, состояние шины PCI Express и пределы мощности. Плюс жалобы видеодрайвера в журнале Windows. Мгновенно, без нагрузки."/>
+                            <Button Content="Проверка видеопамяти" Click="OnGpuMemoryTest"
+                                    Style="{StaticResource TestBtn}"
+                                    ToolTip="Записывает во всю свободную видеопамять проверочные шаблоны и сверяет обратно — как MemTest, но для видеокарты. Главная проверка для карты, купленной с рук: деградация памяти даёт артефакты и вылеты из игр."/>
+                            <Button Content="Игровой замер (кадры)" Click="OnGpuGameTest"
+                                    Style="{StaticResource TestBtn}"
+                                    ToolTip="Видеокарта рисует кадры с тяжёлым шейдером — растеризация, текстуры, освещение, как в настоящей игре. Показывает кадры в секунду и ровность их следования (по ней видно рывки, которых не видно по среднему числу)."/>
+                            <Button Content="Скорость для нейросетей" Click="OnGpuLlmTest"
+                                    Style="{StaticResource TestBtn}"
+                                    ToolTip="Умножение матриц на тензорных блоках через DirectML — та же операция, из которой состоит работа языковой модели. Плюс оценка, модель какого размера поместится и с какой скоростью пойдёт."/>
+
+                            <TextBlock Text="СТАБИЛЬНОСТЬ" Style="{StaticResource TestGroup}"/>
+
+                            <Button Content="🔥  Перейти к стресс-тесту" Click="OnGoToStressTab"
+                                    Style="{StaticResource TestBtn}"
+                                    ToolTip="Длительная нагрузка с живыми графиками живёт на отдельной вкладке — там видно, как меняются температура и скорость вычислений по ходу теста."/>
+
+                            <Button Content="Отчёт о сбоях ПК" Click="OnCrashReport"
+                                    Style="{StaticResource TestBtn}"
+                                    ToolTip="Разбирает журналы Windows: синие экраны с расшифровкой кода, аппаратные ошибки, срывы видеодрайвера, ошибки дисков. Плюс собственный журнал состояния — что было с температурами перед сбоем. Компьютер не нагружается."/>
+
+                            <Button Content="Журнал состояния" Click="OnBlackBoxInfo"
+                                    Style="{StaticResource TestBtn}"
+                                    ToolTip="Куда пишется посекундная запись состояния машины и как ей пользоваться после сбоя."/>
+
                             <TextBlock Text="СБРОС СЕТИ" Style="{StaticResource TestGroup}"/>
 
                             <ComboBox x:Name="ResetScopeCombo" SelectedIndex="0" Margin="0,0,0,4"
@@ -953,7 +1003,281 @@
                 </Grid>
             </TabItem>
 
-            <!-- Вкладка 4: Лог -->
+            <!-- Вкладка 4: Стресс-тест -->
+            <TabItem Header="🔥 Стресс-тест" x:Name="StressTab"
+                     ToolTip="Длительная полная нагрузка с проверкой, что железо считает верно. Живые графики температур, загрузки и скорости вычислений.">
+                <Grid Background="#111F18">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition x:Name="StressCtlCol" Width="238" MinWidth="200"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*" MinWidth="320"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- ── Левая колонка: управление ── -->
+                    <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto"
+                                  Background="#0C1611" Padding="8,4,8,8">
+                        <StackPanel>
+
+                            <TextBlock Text="ЧТО НАГРУЖАТЬ" Style="{StaticResource TestGroup}"/>
+
+                            <CheckBox x:Name="StCpuChk" Content="Процессор" IsChecked="True"
+                                      Margin="2,0,0,3" FontSize="11"
+                                      ToolTip="Все ядра под полной нагрузкой. Каждый блок вычислений сверяется с заранее известным правильным ответом: исправный процессор не ошибается ни разу."/>
+                            <CheckBox x:Name="StMemChk" Content="Оперативная память" IsChecked="True"
+                                      Margin="2,0,0,3" FontSize="11"
+                                      ToolTip="Заполнение памяти проверочными шаблонами и сверка обратно. Ловит битые ячейки и слишком агрессивный профиль XMP/DOCP."/>
+                            <CheckBox x:Name="StGpuChk" Content="Видеокарта" IsChecked="False"
+                                      Margin="2,0,0,3" FontSize="11"
+                                      ToolTip="Свой вычислительный шейдер Direct3D 11: цепочки FMA плюс работа с видеопамятью — по смыслу то же, что делает FurMark. Никаких перехватов и внедрения в чужие процессы. Самая горячая часть теста."/>
+                            <CheckBox x:Name="StDiskChk" Content="Накопитель" IsChecked="False"
+                                      Margin="2,0,0,6" FontSize="11"
+                                      ToolTip="Запись и перечитывание со сверкой. Выключено по умолчанию: длительная запись расходует ресурс SSD."/>
+
+                            <TextBlock Text="ДЛИТЕЛЬНОСТЬ" Style="{StaticResource TestGroup}"/>
+
+                            <ComboBox x:Name="StDurationCombo" SelectedIndex="1" Margin="0,0,0,6"
+                                      ToolTip="Часть неисправностей проявляется только через 20–30 минут прогрева, поэтому короткий прогон ничего не доказывает.">
+                                <ComboBoxItem Content="5 минут — грубая проверка" Tag="5"/>
+                                <ComboBoxItem Content="15 минут — обычная"        Tag="15"/>
+                                <ComboBoxItem Content="30 минут"                  Tag="30"/>
+                                <ComboBoxItem Content="1 час — для б/у машины"    Tag="60"/>
+                                <ComboBoxItem Content="3 часа — максимально"      Tag="180"/>
+                            </ComboBox>
+
+                            <Button x:Name="StStartBtn" Content="▶  Запустить" Click="OnStressStart"
+                                    Style="{StaticResource TestBtnPrimary}"
+                                    ToolTip="Начать нагрузку. Компьютер нагреется, вентиляторы выйдут на максимум — это и есть смысл теста."/>
+                            <Button x:Name="StStopBtn" Content="■  Остановить" Click="OnStressStop"
+                                    IsEnabled="False" Style="{StaticResource TestBtnDanger}"
+                                    ToolTip="Прервать тест немедленно."/>
+
+                            <TextBlock Text="ХОД ТЕСТА" Style="{StaticResource TestGroup}"/>
+
+                            <ProgressBar x:Name="StProgress" Height="6" Minimum="0" Maximum="1" Value="0"
+                                         Margin="0,0,0,5" Background="#152A20" Foreground="#4FD98B"
+                                         BorderBrush="#23402F" BorderThickness="1"/>
+
+                            <Grid Margin="2,0,0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Прошло" Style="{StaticResource Lbl}"/>
+                                <TextBlock Grid.Column="1" x:Name="StElapsedLbl" Text="—"
+                                           Style="{StaticResource MiniVal}"/>
+                            </Grid>
+                            <Grid Margin="2,0,0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Осталось" Style="{StaticResource Lbl}"/>
+                                <TextBlock Grid.Column="1" x:Name="StRemainLbl" Text="—"
+                                           Style="{StaticResource MiniVal}"/>
+                            </Grid>
+                            <Grid Margin="2,0,0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Состояние" Style="{StaticResource Lbl}"/>
+                                <TextBlock Grid.Column="1" x:Name="StStateLbl" Text="не запущен"
+                                           Style="{StaticResource MiniVal}"/>
+                            </Grid>
+
+                            <TextBlock Text="МАКСИМУМЫ" Style="{StaticResource TestGroup}"/>
+
+                            <Grid Margin="2,0,0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Темп. CPU" Style="{StaticResource Lbl}"/>
+                                <TextBlock Grid.Column="1" x:Name="StMaxCpuTempLbl" Text="—"
+                                           Style="{StaticResource MiniVal}"/>
+                            </Grid>
+                            <Grid Margin="2,0,0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Темп. GPU" Style="{StaticResource Lbl}"/>
+                                <TextBlock Grid.Column="1" x:Name="StMaxGpuTempLbl" Text="—"
+                                           Style="{StaticResource MiniVal}"/>
+                            </Grid>
+                            <Grid Margin="2,0,0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Проверено ОЗУ" Style="{StaticResource Lbl}"/>
+                                <TextBlock Grid.Column="1" x:Name="StMemCheckedLbl" Text="—"
+                                           Style="{StaticResource MiniVal}"/>
+                            </Grid>
+
+                            <TextBlock x:Name="StHintLbl" TextWrapping="Wrap" FontSize="10"
+                                       Foreground="#5C7A69" Margin="2,4,0,0"
+                                       Text="Тест остановится сам при 95 °C. Температуры читаются только с правами администратора."/>
+
+                            <Button Content="💾 Сохранить отчёт" Click="OnStressSave"
+                                    Style="{StaticResource TestBtn}" Margin="0,8,0,0"
+                                    ToolTip="Сохранить весь вывод теста в текстовый файл."/>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch"
+                                  Background="#23402F" Cursor="SizeWE"
+                                  ResizeBehavior="PreviousAndNext" ResizeDirection="Columns"
+                                  ToolTip="Потяните, чтобы изменить ширину панели управления."/>
+
+                    <!-- ── Правая колонка: плитки, графики, лог ── -->
+                    <Grid Grid.Column="2">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="2*" MinHeight="150"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*" MinHeight="60"/>
+                        </Grid.RowDefinitions>
+
+                        <UniformGrid Grid.Row="0" Rows="1" Columns="6" Margin="4,4,4,2">
+                            <Border Style="{StaticResource Card}" Margin="2" Padding="6,3">
+                                <StackPanel>
+                                    <TextBlock Text="Загрузка CPU" Style="{StaticResource Lbl}"/>
+                                    <TextBlock x:Name="StCpuVal" Text="—" Style="{StaticResource Val}"
+                                               Foreground="#E3B44F"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource Card}" Margin="2" Padding="6,3">
+                                <StackPanel>
+                                    <TextBlock Text="Темп. CPU" Style="{StaticResource Lbl}"/>
+                                    <TextBlock x:Name="StCpuTempVal" Text="—" Style="{StaticResource Val}"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource Card}" Margin="2" Padding="6,3">
+                                <StackPanel>
+                                    <TextBlock Text="Загрузка GPU" Style="{StaticResource Lbl}"/>
+                                    <TextBlock x:Name="StGpuVal" Text="—" Style="{StaticResource Val}"
+                                               Foreground="#5CD1C0"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource Card}" Margin="2" Padding="6,3">
+                                <StackPanel>
+                                    <TextBlock Text="Темп. GPU" Style="{StaticResource Lbl}"/>
+                                    <TextBlock x:Name="StGpuTempVal" Text="—" Style="{StaticResource Val}"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource Card}" Margin="2" Padding="6,3">
+                                <StackPanel>
+                                    <TextBlock Text="Скорость CPU" Style="{StaticResource Lbl}"
+                                               ToolTip="Миллионов операций в секунду. Падение по ходу теста — это троттлинг."/>
+                                    <TextBlock x:Name="StSpeedVal" Text="—" Style="{StaticResource Val}"
+                                               Foreground="#D4E8A8"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Style="{StaticResource Card}" Margin="2" Padding="6,3">
+                                <StackPanel>
+                                    <TextBlock Text="Ошибок" Style="{StaticResource Lbl}"
+                                               ToolTip="Сколько раз железо посчитало неверно. Исправная машина не ошибается ни разу."/>
+                                    <TextBlock x:Name="StErrVal" Text="0" Style="{StaticResource Val}"
+                                               Foreground="#86D97A"/>
+                                </StackPanel>
+                            </Border>
+                        </UniformGrid>
+
+                        <Grid Grid.Row="1" Margin="4,2,4,2">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <StackPanel Grid.Row="0" Orientation="Horizontal">
+                                    <TextBlock Text="Температура" Foreground="#EE8B8B"
+                                               Style="{StaticResource SecHdr}"/>
+                                    <TextBlock Text="  CPU" Foreground="#E3B44F" FontSize="10"
+                                               VerticalAlignment="Center"/>
+                                    <TextBlock Text="  GPU" Foreground="#5CD1C0" FontSize="10"
+                                               VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="StTempHint" Text="  — нужны права администратора"
+                                               Foreground="#5C7A69" FontSize="10" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <sp:WpfPlot Grid.Row="1" x:Name="PlotStressTemp"
+                                            ToolTipService.IsEnabled="False"/>
+                            </Grid>
+
+                            <Grid Grid.Row="1">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <StackPanel Grid.Row="0" Orientation="Horizontal">
+                                    <TextBlock Text="Загрузка, %" Foreground="#4FD98B"
+                                               Style="{StaticResource SecHdr}"/>
+                                    <TextBlock Text="  CPU" Foreground="#E3B44F" FontSize="10"
+                                               VerticalAlignment="Center"/>
+                                    <TextBlock Text="  GPU" Foreground="#5CD1C0" FontSize="10"
+                                               VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <sp:WpfPlot Grid.Row="1" x:Name="PlotStressLoad"
+                                            ToolTipService.IsEnabled="False"/>
+                            </Grid>
+
+                            <Grid Grid.Row="2">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <StackPanel Grid.Row="0" Orientation="Horizontal">
+                                    <TextBlock Text="Скорость вычислений" Foreground="#D4E8A8"
+                                               Style="{StaticResource SecHdr}"
+                                               ToolTip="Проседание линии под нагрузкой — это троттлинг: перегрев или упор в лимит питания."/>
+                                    <TextBlock Text="  CPU, млн оп/с" Foreground="#D4E8A8" FontSize="10"
+                                               VerticalAlignment="Center"/>
+                                    <TextBlock Text="  GPU, млрд оп/с" Foreground="#86D97A" FontSize="10"
+                                               VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <sp:WpfPlot Grid.Row="1" x:Name="PlotStressSpeed"
+                                            ToolTipService.IsEnabled="False"/>
+                            </Grid>
+                        </Grid>
+
+                        <GridSplitter Grid.Row="2" Height="5" HorizontalAlignment="Stretch"
+                                      Background="#23402F" Cursor="SizeNS"
+                                      ResizeBehavior="PreviousAndNext" ResizeDirection="Rows"
+                                      ToolTip="Потяните, чтобы изменить высоту вывода."/>
+
+                        <ListBox Grid.Row="3" x:Name="StressOutput"
+                                 Background="#111F18" BorderThickness="0"
+                                 FontFamily="Cascadia Code, Consolas, monospace" FontSize="11"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                 VirtualizingPanel.IsVirtualizing="True"
+                                 ToolTip="Подробный ход теста и итоговый отчёт.">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Text}" Foreground="{Binding Color}"
+                                               FontWeight="{Binding Weight}"
+                                               FontFamily="Cascadia Code, Consolas, monospace"
+                                               FontSize="11" TextWrapping="NoWrap"/>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="Padding" Value="4,0"/>
+                                    <Setter Property="Background" Value="Transparent"/>
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                        </ListBox>
+                    </Grid>
+                </Grid>
+            </TabItem>
+
+            <!-- Вкладка 5: Лог -->
             <TabItem Header="📋 Лог событий" x:Name="LogTab"
                      ToolTip="Хронологический журнал пингов и событий. Последние 300 строк.">
                 <Grid x:Name="LogPanel" Background="#111F18">

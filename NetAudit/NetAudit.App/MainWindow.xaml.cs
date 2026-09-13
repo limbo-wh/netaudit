@@ -54,6 +54,11 @@ public partial class MainWindow : Window
 
     private ProbeScheduler?         _scheduler;
     private SystemMetricsScheduler? _sysScheduler;
+
+    // Чёрный ящик: посекундная запись состояния сразу на диск. Нужен ровно для
+    // случая, когда машина умирает целиком (синий экран, зависание, пропажа
+    // питания) и рассказать о последних секундах больше некому
+    private readonly NetAudit.Core.Logging.BlackBoxRecorder _blackBox = new();
     private AppSettings             _settings = AppSettings.Load();
     private HardwareInfo?           _hardware;
     private DateTime                _startTime;
@@ -109,6 +114,7 @@ public partial class MainWindow : Window
         SetupGraphZoom();
         SetupGraphHover();
         SetupTestsTab();
+        SetupStressTab();
         SetupGameMode();
         SetupGameBoost();
         SetupTray();
@@ -400,7 +406,9 @@ public partial class MainWindow : Window
         try
         {
             _startTime = DateTime.Now;
-            string gateway = NetworkUtils.GetDefaultGateway() ?? "192.168.1.1";
+
+            var gwInfo = NetworkUtils.GetDefaultGatewayInfo();
+            string gateway = gwInfo.IsEmpty ? "192.168.1.1" : gwInfo.Address;
             GatewayLabel.Text = $"Шлюз: {gateway}";
             StatusLabel.Text  = "Работает";
 
@@ -408,6 +416,23 @@ public partial class MainWindow : Window
             _scheduler.GatewayResult    += OnGatewayResult;
             _scheduler.CloudflareResult += OnCloudflareResult;
             _scheduler.Start();
+
+            StartBlackBox();
+
+            // Через какой адаптер меряем. При поднятом VPN это не праздный вопрос:
+            // туннель объявляет своим шлюзом 0.0.0.0, и раньше пробы уходили именно
+            // туда, показывая 100% потерь на исправной сети
+            if (!gwInfo.IsEmpty)
+            {
+                AppendEventLog($"Шлюз {gwInfo.Address} через «{gwInfo.AdapterName}»", BrushCyan);
+                if (gwInfo.IsTunnel)
+                    AppendEventLog("⚠ Шлюз найден на туннельном адаптере — задержка до него " +
+                                   "не отражает состояние домашней сети", BrushYellow);
+            }
+            else
+            {
+                AppendEventLog("⚠ Шлюз не определён, взят адрес по умолчанию 192.168.1.1", BrushYellow);
+            }
 
             _sysScheduler = new SystemMetricsScheduler();
             _sysScheduler.SnapshotReady += OnSnapshot;
@@ -431,6 +456,22 @@ public partial class MainWindow : Window
             // (проверено 2026-08-17), поэтому теперь ярлык создаёт сам процесс
             if (!_settings.ShortcutOffered && !DesktopShortcut.Exists())
                 ShortcutBanner.Visibility = Visibility.Visible;
+
+            // Права важнее ярлыка: без них не работает половина измерений
+            OfferElevationIfNeeded();
+
+            // Отладочный вход: запуск с --open-settings сразу открывает окно
+            // настроек. Нужен, чтобы проверять его автоматикой — нажать кнопку
+            // в шапке извне оказалось ненадёжно, а окно, которое не открывается,
+            // иначе никак не отличить от окна, по которому не попали мышью
+            if (Environment.GetCommandLineArgs().Any(a =>
+                    a.Equals("--open-settings", StringComparison.OrdinalIgnoreCase)))
+            {
+                // Результат намеренно отбрасывается: окно открывается само,
+                // ждать его закрытия здесь нечего и некому
+                _ = Dispatcher.InvokeAsync(() => OnSettings(this, new RoutedEventArgs()),
+                                           System.Windows.Threading.DispatcherPriority.Background);
+            }
 
             _ = RunProcessPollerAsync().ContinueWith(
                     t => Dispatcher.Invoke(() =>
@@ -597,8 +638,63 @@ public partial class MainWindow : Window
 
     // ── Системные метрики ─────────────────────────────────────────────────
 
+    /// <summary>
+    /// Запускает журнал состояния и сразу сообщает, если прошлый сеанс оборвался.
+    /// Момент важен: об аварийном завершении надо узнать при запуске, а не когда
+    /// пользователь случайно откроет отчёт через неделю.
+    /// </summary>
+    private void StartBlackBox()
+    {
+        try
+        {
+            // Сначала осматриваем прошлые сеансы, потом начинаем свой: иначе
+            // собственный, ещё не закрытый файл попал бы в список оборванных
+            var crashed = NetAudit.Core.Logging.BlackBoxReader.ScanCrashedSessions();
+
+            _blackBox.Start("запуск NetAudit");
+
+            // Штатное выключение или перезагрузка Windows закрывает процесс, не давая
+            // отработать Window_Closing. Без этой подписки каждое нормальное выключение
+            // компьютера выглядело бы в отчёте как аварийное завершение
+            if (Application.Current is not null)
+                Application.Current.SessionEnding += (_, args) =>
+                {
+                    try
+                    {
+                        _blackBox.Mark($"завершение сеанса Windows: {args.ReasonSessionEnding}");
+                        _blackBox.CloseCleanly();
+                    }
+                    catch { }
+                };
+
+            if (crashed.Count > 0)
+            {
+                var last = crashed[0];
+                AppendEventLog(
+                    $"⚠ Прошлый сеанс оборвался {last.LastRecord:dd.MM HH:mm:ss} — компьютер или NetAudit " +
+                    $"завершились нештатно. Подробности: «Тесты и сервис» → «Отчёт о сбоях ПК»",
+                    BrushRed);
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendEventLog($"⚠ Журнал состояния не запустился: {ex.Message}", BrushYellow);
+        }
+    }
+
     private void OnSnapshot(SystemSnapshot snap)
     {
+        // Пишем из фонового потока планировщика, до захода в UI: при зависшем
+        // интерфейсе (а перед крахом он обычно и висит) запись всё равно уходит на диск.
+        // PingStats потокобезопасен, поэтому читать его отсюда можно
+        try
+        {
+            var gw = _gwStats.Get();
+            double loss = gw.sent > 0 ? gw.lost * 100.0 / gw.sent : double.NaN;
+            _blackBox.Write(snap, _gwLastRtt ?? double.NaN, loss, _gameMode ? "игра" : "обычный");
+        }
+        catch { }
+
         _rxStreamer.Add(snap.RxMBps);
         _txStreamer.Add(snap.TxMBps);
         _cpuStreamer.Add(snap.CpuPercent);
@@ -900,8 +996,20 @@ public partial class MainWindow : Window
 
     private void OnSettings(object sender, RoutedEventArgs e)
     {
-        var win = new SettingsWindow(_settings, ApplyAllSettings) { Owner = this };
-        win.ShowDialog();
+        try
+        {
+            var win = new SettingsWindow(_settings, ApplyAllSettings) { Owner = this };
+            win.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            // Окно, которое молча не открывается, — худший случай: пользователь
+            // жмёт кнопку и не понимает, сломалась программа или он сам промахнулся
+            AppendEventLog($"⚠ Не удалось открыть настройки: {ex.Message}", BrushRed);
+            MessageBox.Show(this,
+                $"Не удалось открыть настройки:\n\n{ex.Message}\n\n{ex.StackTrace?.Split('\n').FirstOrDefault()?.Trim()}",
+                "NetAudit", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     private void ApplyAllSettings()
@@ -1217,6 +1325,81 @@ public partial class MainWindow : Window
         UpdateBanner.Visibility = Visibility.Collapsed;
     }
 
+    // ── Права администратора ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Предлагает настроить автоматическое повышение прав — один раз и только если
+    /// есть что предлагать. Баннер, а не диалог: прерывать запуск модальным окном
+    /// ради того, что можно сделать позже, невежливо.
+    /// </summary>
+    private void OfferElevationIfNeeded()
+    {
+        try
+        {
+            if (ElevationService.IsElevated) return;
+            if (_settings.ElevationOffered) return;
+            if (ElevationService.TaskReady()) return;   // уже настроено, просто запустили не через ярлык
+
+            ElevationBanner.Visibility = Visibility.Visible;
+
+            // Два баннера в одной строке разметки перекрыли бы друг друга;
+            // права важнее ярлыка, ярлык предложим в следующий раз
+            ShortcutBanner.Visibility = Visibility.Collapsed;
+        }
+        catch { }
+    }
+
+    private void OnElevationSetup(object sender, RoutedEventArgs e)
+    {
+        ElevationBanner.Visibility = Visibility.Collapsed;
+        _settings.ElevationOffered = true;
+        _settings.Save();
+
+        if (!ElevationService.SetupTask(out string error))
+        {
+            AppendEventLog($"⚠ Не удалось настроить автоповышение прав: {error}", BrushYellow);
+            MessageBox.Show(this,
+                $"Не удалось создать задачу в Планировщике: {error}.\n\n" +
+                "NetAudit продолжит работать без прав администратора: температуры, " +
+                "счётчик кадров и очистка памяти останутся недоступны.",
+                "NetAudit", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        AppendEventLog("✓ Автоповышение прав настроено", BrushGreen);
+
+        var answer = MessageBox.Show(this,
+            "Готово. NetAudit будет запускаться с правами администратора автоматически, " +
+            "без запросов Windows.\n\nПерезапустить сейчас, чтобы права заработали?",
+            "NetAudit", MessageBoxButton.YesNo, MessageBoxImage.Information, MessageBoxResult.Yes);
+
+        if (answer == MessageBoxResult.Yes) RestartViaTask();
+    }
+
+    private void OnElevationDismiss(object sender, RoutedEventArgs e)
+    {
+        ElevationBanner.Visibility = Visibility.Collapsed;
+        _settings.ElevationOffered = true;
+        _settings.Save();
+        AppendEventLog("Настроить права можно позже: Настройки → Права администратора", BrushDim);
+    }
+
+    /// <summary>Перезапуск через задачу Планировщика — без запроса прав.</summary>
+    internal void RestartViaTask()
+    {
+        ElevationService.MarkAttempt();
+        SingleInstance.ReleaseForRelaunch();
+
+        if (!ElevationService.RelaunchViaTask())
+        {
+            AppendEventLog("⚠ Не удалось перезапустить через задачу Планировщика", BrushYellow);
+            return;
+        }
+
+        _reallyExiting = true;
+        Close();
+    }
+
     private void OnShortcutCreate(object sender, RoutedEventArgs e)
     {
         if (DesktopShortcut.Create(out string error))
@@ -1344,6 +1527,12 @@ public partial class MainWindow : Window
 
         _uiCts.Cancel();
         _testCts?.Cancel();
+        _stressCts?.Cancel();
+
+        // Маркер штатного закрытия. По его отсутствию следующий запуск понимает,
+        // что сеанс оборвался — поэтому ставится раньше всего остального
+        try { _blackBox.CloseCleanly(); } catch { }
+
         if (_gameBoost.Active) { try { await _gameBoost.RevertAsync(); } catch { } }
         ShutdownGameMode();
         ShutdownTray();

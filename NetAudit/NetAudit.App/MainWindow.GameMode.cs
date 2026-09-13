@@ -100,6 +100,10 @@ public partial class MainWindow
         string who = _gameProcess.Length > 0 ? $" ({_gameProcess})" : "";
         AppendEventLog($"🎮 Игровой режим включён{who} — {state.Reason}", BrushCyan);
 
+        // Пометка в журнале состояния: если машина умрёт во время игры, по ней
+        // сразу видно, что именно было запущено в последние секунды
+        _blackBox.Mark($"вход в игровой режим{who} — {state.Reason}");
+
         WarnIfOverlayWontShow(state);
     }
 
@@ -133,6 +137,10 @@ public partial class MainWindow
 
     private void LeaveGameMode()
     {
+        _blackBox.Mark(_gameProcess.Length > 0
+            ? $"выход из игрового режима ({_gameProcess})"
+            : "выход из игрового режима");
+
         _gameMode    = false;
         _gameProcess = "";
 

@@ -60,6 +60,8 @@ app_lan/                                  ← корень git-репозито�
     │   │   ├── NetworkSpeedProbe.cs      дельта BytesReceived/Sent
     │   │   ├── WifiProbe.cs              netsh, только при наличии Wi-Fi адаптера
     │   │   ├── HardwareProbe.cs          WMI, одноразовый сбор
+    │   │   ├── GpuInfo.cs                паспорт видеокарты: модель, память, пределы
+    │   │   ├── GpuInfoProbe.cs           сбор паспорта: DXGI + D3D11 + nvidia-smi
     │   │   └── ProcessProbe.cs           список процессов, без ограничения сверху
     │   ├── Diagnostics/                  разовые тесты, вкладка «Тесты и сервис»
     │   │   ├── TestTypes.cs              TestLine, TestLevel, IDiagnosticTest, Fmt
@@ -68,14 +70,40 @@ app_lan/                                  ← корень git-репозито�
     │   │   ├── DnsTest.cs                свой DNS-клиент по UDP, сравнение резолверов
     │   │   ├── TracerouteTest.cs         пинг с растущим TTL + вердикт по участкам
     │   │   ├── MtuTest.cs                двоичный поиск размера пакета без дробления
-    │   │   ├── SystemBenchTest.cs        CPU/RAM/диск, проверка на троттлинг
+    │   │   ├── SystemBenchTest.cs        CPU/RAM/диск, короткий замер + троттлинг
+    │   │   ├── StressOptions.cs          что и сколько нагружать, пороги остановки
+    │   │   ├── StressTest.cs             длительная нагрузка с проверкой правильности
+    │   │   │                             вычислений и содержимого памяти
+    │   │   ├── StressMonitor.cs          наблюдение за температурами и скоростью
+    │   │   │                             во время нагрузки, в своём потоке
+    │   │   ├── StressTick.cs             числовой срез хода теста — канал для графиков
+    │   │   ├── GpuStressWorker.cs        нагрузка видеокарты своим шейдером D3D11:
+    │   │   │                             цепочки FMA + работа с видеопамятью, со сверкой
+    │   │   ├── GpuDiagnosticTest.cs      сводная диагностика видеокарты + выводы
+    │   │   │                             для игр и для языковых моделей
+    │   │   ├── GpuBenchmark.cs           скорость видеопамяти, FP32, шина PCI Express
+    │   │   ├── GpuMemoryTest.cs          проверка видеопамяти шаблонами (MemTest для GPU),
+    │   │   │                             сверка на самой карте + самопроверка теста
+    │   │   ├── GpuLlmBenchmark.cs        вычисления FP16 обычным шейдером — запасной
+    │   │   │                             путь, если DirectML недоступен
+    │   │   ├── GpuTensorBenchmark.cs     умножение матриц на тензорных блоках через
+    │   │   │                             DirectML — главный замер для нейросетей
+    │   │   ├── GpuGameBenchmark.cs       рисование кадров с растеризацией: FPS,
+    │   │   │                             худший процент, ровность кадров
+    │   │   ├── CrashReportTest.cs        отчёт о сбоях ПК: журналы, дампы, чёрный ящик
+    │   │   ├── WindowsEventQuery.cs      чтение журналов Windows по XPath, без внешних процессов
+    │   │   ├── BugCheckCodes.cs          расшифровка кодов синего экрана + подозреваемый
     │   │   ├── NetworkResetService.cs    сброс сети через повышенный PowerShell
     │   │   └── RamCacheService.cs        очистка standby list через повышенный PowerShell
     │   ├── GameMode/GameModeDetector.cs  полноэкранное приложение на переднем плане
     │   ├── Scheduler/
     │   │   ├── ProbeScheduler.cs         тик 250 мс, шлюз + 1.1.1.1 параллельно
     │   │   └── SystemMetricsScheduler.cs тик 1 с (2 с в игре), снимок + Wi-Fi + FPS
-    │   ├── Logging/PingLogger.cs         лог в %LOCALAPPDATA%\NetAudit\ping_*.log
+    │   ├── Logging/
+    │   │   ├── PingLogger.cs             лог в %LOCALAPPDATA%\NetAudit\ping_*.log
+    │   │   ├── BlackBoxRecorder.cs       посекундная запись состояния мимо кэша ОС,
+    │   │   │                             переживает синий экран; маркер штатного выхода
+    │   │   └── BlackBoxReader.cs         разбор файлов сеансов, поиск оборванных
     │   ├── Updates/UpdateInstaller.cs    скачать, сверить SHA-256, подменить, перезапустить
     │   └── UpdateChecker.cs              сравнение с version.json по URL
     │
@@ -85,6 +113,8 @@ app_lan/                                  ← корень git-репозито�
     │   ├── NetAudit.ico                  значок приложения и трея, 8 размеров
     │   ├── app.manifest                  asInvoker, PerMonitorV2
     │   ├── AppSettings.cs                %LOCALAPPDATA%\NetAudit\settings.json + Clone/CopyFrom
+    │   ├── ElevationService.cs           права администратора без UAC: задача
+    │   │                                 в Планировщике, автоперезапуск, защита от цикла
     │   ├── StartupManager.cs             автозапуск через HKCU\...\Run — через задачу планировщика
     │   │                                 (повышенно), если она есть, иначе прямой exe + --tray
     │   ├── DesktopShortcut.cs            ярлык на рабочем столе через WScript.Shell, без install.bat
@@ -94,6 +124,8 @@ app_lan/                                  ← корень git-репозито�
     │   ├── OverlayMetrics.cs             каталог метрик оверлея: ключ, подпись, порядок по умолчанию
     │   ├── MainWindow.xaml(.cs)          графики, статистика, лог, диспетчер, хоткеи
     │   ├── MainWindow.Tests.cs           вкладка тестов, сброс сети, обновление
+    │   ├── MainWindow.Stress.cs          вкладка «Стресс-тест»: живые графики
+    │   │                                 температур, загрузки и скорости вычислений
     │   ├── MainWindow.GameMode.cs        игровой режим: приоритет, отрисовка, лог
     │   ├── MainWindow.GameBoost.cs       вкладка «Игровой режим»: авто-режим + разгон
     │   ├── MainWindow.Tray.cs            трей, сворачивание и закрытие в трей
@@ -121,6 +153,10 @@ app_lan/                                  ← корень git-репозито�
   тестов (скорость, DNS, трассировка, MTU, железо), сброс сети без перезагрузки
   Windows, игровой режим, разгон перед игрой (Game Boost), значок в трее,
   автозапуск, автообновление с проверкой контрольной суммы, установщик, подпись кода.
+- **Стабильность (2026-09-13):** вкладка «Стресс-тест» с живыми графиками
+  (нагрузка CPU / памяти / видеокарты / диска с проверкой правильности вычислений),
+  чёрный ящик — посекундная запись состояния, переживающая синий экран,
+  отчёт о сбоях ПК с расшифровкой кодов BSOD и разбором журналов Windows.
 
 ## Чего нет
 

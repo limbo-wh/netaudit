@@ -59,6 +59,26 @@ public static class SingleInstance
         });
     }
 
+    /// <summary>
+    /// Отпускает захваченный Mutex, не завершая процесс. Нужно ровно в одном
+    /// случае: этот экземпляр сейчас перезапустит себя с правами администратора
+    /// и должен освободить имя раньше, чем поднимется новый, иначе тот увидит
+    /// «уже запущено» и тихо выйдет — а старый к тому моменту уже закрывается.
+    /// </summary>
+    public static void ReleaseForRelaunch()
+    {
+        try
+        {
+            _mutex?.ReleaseMutex();
+            _mutex?.Dispose();
+        }
+        catch { }
+        finally
+        {
+            _mutex = null;
+        }
+    }
+
     [DllImport("user32.dll")]
     private static extern int RegisterWindowMessage(string message);
 

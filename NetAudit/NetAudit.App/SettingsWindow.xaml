@@ -271,6 +271,42 @@
 
             <Border Height="1" Background="#23402F" Margin="0,12,0,12"/>
 
+            <!-- Права администратора -->
+            <TextBlock Text="Права администратора" Foreground="#4FD98B"
+                       Style="{StaticResource SectionTitle}"
+                       ToolTip="Температуры, счётчик кадров и очистка памяти без прав администратора не работают."/>
+
+            <Grid Margin="0,0,0,6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="Состояние:  " Foreground="#5C7A69" FontSize="11"/>
+                <TextBlock Grid.Column="1" x:Name="ElevationStateText" Foreground="#D8EADF" FontSize="11"
+                           TextWrapping="Wrap"/>
+            </Grid>
+
+            <CheckBox x:Name="ChkAutoElevate" Content="Запускаться с правами администратора автоматически"
+                      ToolTip="NetAudit будет подниматься через задачу Планировщика заданий — без запроса Windows при каждом старте. Саму задачу нужно создать один раз кнопкой ниже."/>
+
+            <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                <Button x:Name="BtnElevationSetup" Content="Настроить" Click="OnElevationSetupClick"
+                        Padding="10,3" FontSize="11" Margin="0,0,6,0"
+                        ToolTip="Создаёт задачу в Планировщике заданий. Windows спросит подтверждение один раз."/>
+                <Button x:Name="BtnElevationRemove" Content="Убрать" Click="OnElevationRemoveClick"
+                        Padding="10,3" FontSize="11" Margin="0,0,6,0"
+                        ToolTip="Удаляет задачу. NetAudit снова будет запускаться без прав администратора."/>
+                <Button x:Name="BtnElevationRestart" Content="Перезапустить с правами" Click="OnElevationRestartClick"
+                        Padding="10,3" FontSize="11"
+                        ToolTip="Перезапускает NetAudit прямо сейчас через задачу Планировщика."/>
+            </StackPanel>
+
+            <TextBlock x:Name="ElevationHint" Foreground="#5C7A69" FontSize="10"
+                       TextWrapping="Wrap" Margin="0,6,0,0"
+                       Text="Задача в Планировщике — документированный способ запускать программу повышенно без UAC-запроса. Создать её может только администратор, а запускает она приложение только от вашего имени."/>
+
+            <Border Height="1" Background="#23402F" Margin="0,12,0,12"/>
+
             <!-- Обновления -->
             <TextBlock Text="Обновления" Foreground="#4FD98B"
                        Style="{StaticResource SectionTitle}"

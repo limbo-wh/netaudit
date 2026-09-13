@@ -52,6 +52,100 @@ public partial class MainWindow
     private async void OnTestHardware(object s, RoutedEventArgs e) => await RunAsync(new SystemBenchTest());
     private async void OnTestCpu(object s, RoutedEventArgs e)     => await RunAsync(new SystemBenchTest(BenchParts.Cpu));
 
+    // ── Видеокарта ────────────────────────────────────────────────────────
+
+    private async void OnGpuFullDiagnostic(object sender, RoutedEventArgs e)
+    {
+        BottomTabs.SelectedItem = TestTab;
+        await RunAsync(new GpuDiagnosticTest());
+    }
+
+    /// <summary>Только чтение: паспорт и здоровье, без единой нагрузки на карту.</summary>
+    private async void OnGpuPassport(object sender, RoutedEventArgs e)
+    {
+        BottomTabs.SelectedItem = TestTab;
+        await RunAsync(new GpuDiagnosticTest(
+            GpuDiagnosticParts.Passport | GpuDiagnosticParts.Health));
+    }
+
+    private async void OnGpuMemoryTest(object sender, RoutedEventArgs e)
+    {
+        BottomTabs.SelectedItem = TestTab;
+        await RunAsync(new GpuMemoryTest(passes: 2));
+    }
+
+    private async void OnGpuGameTest(object sender, RoutedEventArgs e)
+    {
+        BottomTabs.SelectedItem = TestTab;
+        await RunAsync(new GpuGameBenchmark());
+    }
+
+    private async void OnGpuLlmTest(object sender, RoutedEventArgs e)
+    {
+        BottomTabs.SelectedItem = TestTab;
+        await RunAsync(new GpuDiagnosticTest(
+            GpuDiagnosticParts.Passport | GpuDiagnosticParts.Benchmark | GpuDiagnosticParts.Llm));
+    }
+
+    // ── Стабильность ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Стресс-тест живёт на своей вкладке: он идёт часами, и смотреть на него надо
+    /// в динамике — по графикам, а не по строчкам в общем выводе тестов.
+    /// </summary>
+    private void OnGoToStressTab(object sender, RoutedEventArgs e)
+        => BottomTabs.SelectedItem = StressTab;
+
+    private async void OnCrashReport(object sender, RoutedEventArgs e)
+    {
+        BottomTabs.SelectedItem = TestTab;
+        await RunAsync(new CrashReportTest());
+    }
+
+    /// <summary>Объясняет, что такое журнал состояния и что с ним делать после сбоя.</summary>
+    private void OnBlackBoxInfo(object sender, RoutedEventArgs e)
+    {
+        BottomTabs.SelectedItem = TestTab;
+
+        Emit(TestLine.Empty);
+        Emit(TestLine.Head("Журнал состояния (чёрный ящик)"));
+        Emit(TestLine.Dim("Пока NetAudit запущен, раз в секунду на диск пишется строка: загрузка"));
+        Emit(TestLine.Dim("процессора, температуры, память, кадры, задержка сети. Запись идёт мимо"));
+        Emit(TestLine.Dim("кэша Windows — именно поэтому она переживает синий экран и пропажу питания,"));
+        Emit(TestLine.Dim("в отличие от обычного лога, который в такой момент теряет последние минуты."));
+        Emit(TestLine.Empty);
+
+        Emit(TestLine.Info(CoreFmt.Row("Состояние", _blackBox.IsRecording ? "ведётся" : "не ведётся")));
+        Emit(TestLine.Info(CoreFmt.Row("Папка", NetAudit.Core.Logging.BlackBoxRecorder.Directory)));
+
+        if (_blackBox.FilePath is { Length: > 0 } path)
+            Emit(TestLine.Info(CoreFmt.Row("Текущий файл", System.IO.Path.GetFileName(path))));
+
+        var sessions = NetAudit.Core.Logging.BlackBoxReader.ScanSessions(_blackBox.FilePath);
+        var crashed  = sessions.Where(s => !s.ClosedCleanly && s.SampleCount > 0).ToList();
+
+        Emit(TestLine.Empty);
+        Emit(TestLine.Info(CoreFmt.Row("Сеансов записано", $"{sessions.Count + (_blackBox.IsRecording ? 1 : 0)}")));
+
+        if (crashed.Count == 0)
+        {
+            Emit(TestLine.Good("Оборванных сеансов нет — все прошлые запуски закрывались штатно."));
+        }
+        else
+        {
+            Emit(TestLine.Bad(CoreFmt.Row("Оборванных сеансов", $"{crashed.Count}")));
+            foreach (var s in crashed.Take(5))
+                Emit(TestLine.Warn(CoreFmt.Row($"   {s.Started:dd.MM HH:mm}",
+                    $"оборвался в {s.LastRecord:HH:mm:ss}, {s.SampleCount} замеров", 20)));
+            Emit(TestLine.Empty);
+            Emit(TestLine.Dim("Подробный разбор с температурами перед обрывом — кнопка «Отчёт о сбоях ПК»."));
+        }
+
+        Emit(TestLine.Empty);
+        Emit(TestLine.Dim("Файлы — обычный CSV, открываются Excel и любым текстовым редактором."));
+        Emit(TestLine.Dim("Кнопка «Папка с данными» откроет папку NetAudit, журнал лежит в blackbox."));
+    }
+
     private async void OnTestTrace(object s, RoutedEventArgs e)
     {
         // Трассируем туда, где точно есть ответ и где виден весь путь до интернета
