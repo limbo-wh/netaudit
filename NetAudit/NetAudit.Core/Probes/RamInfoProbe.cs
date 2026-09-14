@@ -88,6 +88,7 @@ public static class RamInfoProbe
             return new RamInfo
             {
                 Modules          = fromSmbios.Modules,
+                EmptySlots       = fromSmbios.EmptySlots,
                 SlotsTotal       = fromSmbios.SlotsTotal,
                 MaxCapacityBytes = fromSmbios.MaxCapacityBytes,
                 ErrorCorrection  = fromSmbios.ErrorCorrection,
@@ -270,6 +271,7 @@ public static class RamInfoProbe
             int end = Math.Min(buf.Length, 8 + tablesLength);
 
             var modules   = new List<RamModule>();
+            var emptySlots = new List<string>();
             int slotsTotal = 0;
             long maxCapacity = 0;
             string ecc = "";
@@ -290,9 +292,14 @@ public static class RamInfoProbe
                         (slotsTotal, maxCapacity, ecc) = ParseArray(buf, pos, length, slotsTotal, maxCapacity, ecc);
                         break;
 
-                    case 17:   // Memory Device — один слот
+                    case 17:   // Memory Device — один слот, заполненный или пустой
                         var m = ParseDevice(buf, pos, length, strings);
                         if (m is not null) modules.Add(m);
+                        else
+                        {
+                            string empty = EmptySlotName(buf, pos, length, strings);
+                            if (empty.Length > 0) emptySlots.Add(empty);
+                        }
                         break;
 
                     case 127:  // End-of-Table
@@ -309,7 +316,8 @@ public static class RamInfoProbe
             return new RamInfo
             {
                 Modules          = modules,
-                SlotsTotal       = slotsTotal > 0 ? slotsTotal : modules.Count,
+                EmptySlots       = emptySlots,
+                SlotsTotal       = slotsTotal > 0 ? slotsTotal : modules.Count + emptySlots.Count,
                 MaxCapacityBytes = maxCapacity,
                 ErrorCorrection  = ecc,
             };
@@ -342,6 +350,23 @@ public static class RamInfoProbe
             slots += BitConverter.ToUInt16(b, pos + 0x0D);
         }
         return (slots, maxCapacity, ecc);
+    }
+
+    /// <summary>
+    /// Как BIOS называет пустой слот: «DIMM 0 (канал A)». Нужно, чтобы показать
+    /// владельцу, куда, по мнению прошивки, можно доставить планку — с оговоркой,
+    /// что прошивка тут врёт чаще, чем хотелось бы.
+    /// </summary>
+    private static string EmptySlotName(byte[] b, int pos, int length, List<string> strings)
+    {
+        if (length < 0x12) return "";
+
+        string locator = Str(strings, b[pos + 0x10]);
+        string bank    = Str(strings, b[pos + 0x11]);
+        string channel = GuessChannel(bank, locator);
+
+        if (locator.Length == 0) return "";
+        return channel.Length > 0 ? $"{locator} (канал {channel})" : locator;
     }
 
     private static RamModule? ParseDevice(byte[] b, int pos, int length, List<string> strings)
@@ -395,7 +420,7 @@ public static class RamInfoProbe
             DataWidthBits  = BitConverter.ToUInt16(b, pos + 0x0A),
             TotalWidthBits = BitConverter.ToUInt16(b, pos + 0x08),
             TypeName       = MemoryTypeName(b[pos + 0x12]),
-            FormFactor     = FormFactorName(b[pos + 0x0E]),
+            FormFactor     = FormFactorNameSmbios(b[pos + 0x0E]),
         };
     }
 
@@ -449,6 +474,10 @@ public static class RamInfoProbe
         return v;
     }
 
+    /// <summary>
+    /// Тип памяти по коду SMBIOS. WMI в поле <c>SMBIOSMemoryType</c> отдаёт те же
+    /// коды, поэтому таблица общая — в отличие от форм-фактора.
+    /// </summary>
     private static string MemoryTypeName(byte code) => code switch
     {
         0x12 => "DDR",
@@ -464,14 +493,35 @@ public static class RamInfoProbe
         _    => "",
     };
 
-    private static string FormFactorName(byte code) => code switch
+    /// <summary>
+    /// Форм-фактор по нумерации SMBIOS. Она сдвинута на единицу относительно
+    /// нумерации WMI (там DIMM — это 8, а здесь 9), и общая таблица на обе тихо
+    /// превращала бы DIMM в TSOP, а SODIMM — в RIMM.
+    /// </summary>
+    private static string FormFactorNameSmbios(byte code) => code switch
     {
-        0x08 => "DIMM",
-        0x09 => "TSOP",
-        0x0B => "RIMM",
-        0x0C => "SODIMM",
-        0x0D => "SRIMM",
+        0x05 => "чип, распаян на плате",
+        0x09 => "DIMM",
+        0x0A => "TSOP",
+        0x0B => "чипы, распаяны на плате",
+        0x0C => "RIMM",
+        0x0D => "SODIMM",
+        0x0E => "SRIMM",
+        0x0F => "FB-DIMM",
+        0x10 => "кристалл, распаян на плате",
         _    => "",
+    };
+
+    /// <summary>Форм-фактор по нумерации WMI <c>Win32_PhysicalMemory.FormFactor</c>.</summary>
+    private static string FormFactorNameWmi(byte code) => code switch
+    {
+        8  => "DIMM",
+        9  => "TSOP",
+        11 => "RIMM",
+        12 => "SODIMM",
+        13 => "SRIMM",
+        14 => "FB-DIMM",
+        _  => "",
     };
 
     /// <summary>
@@ -547,7 +597,7 @@ public static class RamInfoProbe
                     DataWidthBits  = (int)Num(o, "DataWidth"),
                     TotalWidthBits = (int)Num(o, "TotalWidth"),
                     TypeName       = MemoryTypeName((byte)Num(o, "SMBIOSMemoryType")),
-                    FormFactor     = FormFactorName((byte)Num(o, "FormFactor")),
+                    FormFactor     = FormFactorNameWmi((byte)Num(o, "FormFactor")),
                 });
             }
         }
