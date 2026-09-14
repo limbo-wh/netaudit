@@ -15,6 +15,11 @@
          входит в тот же Windows Desktop Runtime, что и WPF, — размер не растёт -->
     <UseWindowsForms>true</UseWindowsForms>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- NU1701: SkiaSharp.Views.WPF приходит транзитивно через ScottPlot.WPF и собран
+         под .NET Framework; на net10.0-windows работает (проверено живыми графиками
+         с 2026-08), а три одинаковых предупреждения на каждую сборку лишь прячут
+         настоящие -->
+    <NoWarn>$(NoWarn);NU1701</NoWarn>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>NetAudit.ico</ApplicationIcon>
     <!-- Version — единственное место, откуда должна идти версия. AssemblyVersion и

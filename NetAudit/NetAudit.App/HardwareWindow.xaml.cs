@@ -99,8 +99,41 @@ public partial class HardwareWindow : Window
                     $"{ips}{speed}{mac}",
                     valColor);
                 AddSubRow(a.Description);
+
+                // Гигабитный контроллер, договорившийся на 100 Мбит, — самая частая
+                // причина «медленного интернета», которую ищут не там: замер канала
+                // упирается в 95 Мбит/с, а виноват кабель с повреждённой парой или
+                // порт роутера. На машине владельца 14.09: Realtek Gaming GbE на
+                // 100 Mbps, замер 75/85 Мбит/с — линк, а не провайдер
+                if (a.IsConnected && a.SpeedMbps is > 0 and <= 100
+                    && a.AdapterType.Contains("Ethernet", StringComparison.OrdinalIgnoreCase)
+                    && LooksGigabit(a.Description))
+                {
+                    AddRow(
+                        "   ⚠ Линк",
+                        $"{a.SpeedMbps} Мбит/с при гигабитном контроллере — обычно кабель "
+                      + "(повреждённая пара) или порт роутера. Интернет быстрее ~95 Мбит/с "
+                      + "через него не пройдёт",
+                        new SolidColorBrush(Color.FromRgb(0xDF, 0xC4, 0x6A)));
+                }
             }
         }
+    }
+
+    /// <summary>
+    /// Похож ли контроллер на гигабитный по названию. Windows не отдаёт максимальную
+    /// скорость адаптера, только текущую, поэтому судим по имени: у Realtek это
+    /// «GbE», у Intel — «Gigabit» или семейства I2xx, у остальных — «1000».
+    /// Не распознали — молчим: ложное «у вас медленный кабель» хуже пропуска.
+    /// </summary>
+    private static bool LooksGigabit(string description)
+    {
+        string d = description;
+        return d.Contains("GbE", StringComparison.OrdinalIgnoreCase)
+            || d.Contains("Gigabit", StringComparison.OrdinalIgnoreCase)
+            || d.Contains("1000", StringComparison.Ordinal)
+            || d.Contains("2.5G", StringComparison.OrdinalIgnoreCase)
+            || System.Text.RegularExpressions.Regex.IsMatch(d, @"\bI2[0-9]{2}\b");
     }
 
     // ── UI-хелперы ────────────────────────────────────────────────────────

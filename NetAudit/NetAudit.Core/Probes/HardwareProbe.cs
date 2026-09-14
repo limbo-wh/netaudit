@@ -312,6 +312,7 @@ public static class HardwareProbe
             try
             {
                 if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+                if (IsPseudoAdapter(ni)) continue;
 
                 var ipList = new List<string>();
                 try
@@ -341,6 +342,44 @@ public static class HardwareProbe
             catch { }
         }
         return result;
+    }
+
+    /// <summary>
+    /// Служебные интерфейсы Windows, которые не адаптеры. На машине владельца
+    /// 14.09 список из 28 записей: на каждую настоящую карту по три фильтра
+    /// (WFP Native, WFP 802.3, QoS Packet Scheduler — все с «-0000» на конце),
+    /// десять WAN Miniport под VPN-протоколы, Teredo, 6to4, IP-HTTPS, отладчик
+    /// ядра. Настоящих адаптеров — четыре. Показывать всё подряд — значит
+    /// повторять предупреждение о медленном линке четыре раза и хоронить
+    /// Wi-Fi среди минипортов. VPN-туннели (WireGuard, OpenVPN) остаются:
+    /// у них есть IP и они — настоящий путь трафика.
+    /// </summary>
+    private static bool IsPseudoAdapter(NetworkInterface ni)
+    {
+        string d = ni.Description;
+
+        if (d.Contains("LightWeight Filter", StringComparison.OrdinalIgnoreCase)
+         || d.Contains("QoS Packet Scheduler", StringComparison.OrdinalIgnoreCase)
+         || d.Contains("WAN Miniport", StringComparison.OrdinalIgnoreCase)
+         || d.Contains("Kernel Debug", StringComparison.OrdinalIgnoreCase)
+         || d.Contains("Teredo", StringComparison.OrdinalIgnoreCase)
+         || d.Contains("6to4", StringComparison.OrdinalIgnoreCase)
+         || d.Contains("IP-HTTPS", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Туннели и PPP без адреса — заготовки под подключение, а не подключение
+        if (ni.NetworkInterfaceType is NetworkInterfaceType.Tunnel or NetworkInterfaceType.Ppp)
+        {
+            try
+            {
+                bool hasIp = ni.GetIPProperties().UnicastAddresses
+                    .Any(a => a.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+                if (!hasIp) return true;
+            }
+            catch { return true; }
+        }
+
+        return false;
     }
 
     // ── Утилиты ──────────────────────────────────────────────────────────
