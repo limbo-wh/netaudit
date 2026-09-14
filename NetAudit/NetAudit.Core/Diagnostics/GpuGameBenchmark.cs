@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Vortice.D3DCompiler;
 using Vortice.Direct3D;
 using Vortice.Direct3D11;
@@ -60,7 +60,21 @@ public sealed class GpuGameBenchmark(int seconds = 12) : IDiagnosticTest
     /// — пара сотен. При меньшей сложности карта выдавала пятьсот кадров в секунду,
     /// и число переставало что-либо говорить на глаз.
     /// </summary>
-    private const int ShaderComplexity = 800;
+    private const int DefaultComplexity = 800;
+
+    /// <summary>
+    /// Кадр дольше этого — повод упростить сцену. Порог, после которого Windows
+    /// считает видеодрайвер зависшим и перезапускает его, равен двум секундам;
+    /// четверти секунды хватает, чтобы до него было далеко даже с запасом на
+    /// случайную заминку.
+    /// </summary>
+    private const double MaxFrameMs = 250;
+
+    /// <summary>Ниже этого упрощать бессмысленно — сцена перестаёт быть нагрузкой.</summary>
+    private const int MinComplexity = 25;
+
+    /// <summary>Фактически использованная сложность. Меньше стандартной — сцену упростили.</summary>
+    private int _complexity = DefaultComplexity;
 
     private const string ShaderSource = """
         // Полноэкранный треугольник строится без вершинного буфера: три вершины
@@ -156,6 +170,8 @@ public sealed class GpuGameBenchmark(int seconds = 12) : IDiagnosticTest
             for (int i = 0; i < 30; i++) RenderFrame(i);
             Sync();
 
+            Calibrate(log, ct);
+
             var frames = new List<double>(4096);
             var sw = Stopwatch.StartNew();
             var total = Stopwatch.StartNew();
@@ -210,6 +226,45 @@ public sealed class GpuGameBenchmark(int seconds = 12) : IDiagnosticTest
         {
             Cleanup();
         }
+    }
+
+    /// <summary>
+    /// Упрощает сцену, если видеокарта её не тянет.
+    ///
+    /// Сложность подобрана под карту уровня RTX 2080 SUPER. На встроенной графике,
+    /// которая в десятки раз медленнее, тот же кадр считался бы секунды — а через
+    /// две секунды Windows объявляет видеодрайвер зависшим и перезапускает его.
+    /// Тест, который роняет драйвер на слабой машине, — плохой тест, поэтому здесь
+    /// замеряется один настоящий кадр и сложность снижается до посильной.
+    ///
+    /// Обратное упрощение не делается: на быстрой карте сложность остаётся
+    /// стандартной, иначе числа кадров с разных машин было бы не сравнить.
+    /// </summary>
+    private void Calibrate(IProgress<TestLine> log, CancellationToken ct)
+    {
+        var sw = Stopwatch.StartNew();
+        RenderFrame(0);
+        Sync();
+        sw.Stop();
+
+        double frameMs = sw.Elapsed.TotalMilliseconds;
+        if (frameMs <= MaxFrameMs) return;
+
+        ct.ThrowIfCancellationRequested();
+
+        int reduced = (int)Math.Max(MinComplexity, _complexity * (MaxFrameMs / frameMs));
+        log.Report(TestLine.Warn(
+            $"Кадр занимает {frameMs:F0} мс — сцена упрощена с {_complexity} до {reduced}"));
+        log.Report(TestLine.Dim("   Видеокарта не тянет стандартную сложность. Так тест не доведёт"));
+        log.Report(TestLine.Dim("   драйвер до перезапуска по таймауту, но число кадров станет"));
+        log.Report(TestLine.Dim("   несравнимым с результатами более быстрых карт."));
+        log.Report(TestLine.Empty);
+
+        _complexity = reduced;
+
+        // Ещё раз прогреваем на новой сложности: старые кадры мерились на другой сцене
+        for (int i = 0; i < 10; i++) RenderFrame(i);
+        Sync();
     }
 
     private static void Report(IProgress<TestLine> log, GpuGameResult r, int frames)
@@ -363,7 +418,7 @@ public sealed class GpuGameBenchmark(int seconds = 12) : IDiagnosticTest
     {
         var ctx = _context!;
 
-        Span<uint> parms = [ShaderComplexity, BitConverter.SingleToUInt32Bits(frame * 0.01f), 0, 0];
+        Span<uint> parms = [(uint)_complexity, BitConverter.SingleToUInt32Bits(frame * 0.01f), 0, 0];
         ctx.UpdateSubresource(parms, _constants!);
 
         ctx.OMSetRenderTargets(_rtv!);
