@@ -70,19 +70,79 @@ public sealed class RamBenchmark : IDiagnosticTest
     /// <summary>Сюда стекают результаты циклов, чтобы оптимизатор не выбросил сами циклы.</summary>
     private static long _sink;
 
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetLogicalProcessorInformation(byte[]? buffer, ref uint returnLength);
+
+    /// <summary>
+    /// Размер кэша последнего уровня, байт. У процессоров с несколькими кластерами
+    /// таких кэшей несколько — берём размер одного: поток работает со своим, а не
+    /// с их суммой.
+    ///
+    /// Разбор идёт по сырым байтам: запись <c>SYSTEM_LOGICAL_PROCESSOR_INFORMATION</c>
+    /// занимает 32 байта, тип связи лежит по смещению 8 (2 — это кэш), а описание
+    /// кэша — с 16-го: уровень, ассоциативность, длина строки, затем размер.
+    /// </summary>
+    private static long LastLevelCacheBytes()
+    {
+        try
+        {
+            uint size = 0;
+            GetLogicalProcessorInformation(null, ref size);
+            if (size == 0) return 0;
+
+            var buf = new byte[size];
+            if (!GetLogicalProcessorInformation(buf, ref size)) return 0;
+
+            const int RecordSize = 32;
+            const int RelationCache = 2;
+
+            long best = 0;
+            for (int pos = 0; pos + RecordSize <= size; pos += RecordSize)
+            {
+                if (BitConverter.ToInt32(buf, pos + 8) != RelationCache) continue;
+
+                byte level = buf[pos + 16];
+                uint bytes = BitConverter.ToUInt32(buf, pos + 20);
+
+                // Уровень 3 бывает не у всех; на процессорах без него последним
+                // оказывается второй, и ориентироваться надо на самый большой кэш
+                if (level >= 2 && bytes > best) best = bytes;
+            }
+
+            return best;
+        }
+        catch { return 0; }
+    }
+
     public async Task RunAsync(IProgress<TestLine> log, CancellationToken ct)
     {
         log.Report(TestLine.Head("Скорость памяти"));
 
         long available = RamInfoProbe.AvailablePhysicalBytes();
+
+        // Буфер обязан быть заметно больше кэша последнего уровня, иначе замеряется
+        // кэш, а не память. На обычной машине хватает любого размера, но у процессоров
+        // с большим кэшем (AMD X3D — 96 МБ, серверные — сотни) 32 МБ целиком туда
+        // помещаются, и «скорость памяти» вышла бы втрое завышенной
+        long l3 = LastLevelCacheBytes();
+        long wanted = Math.Max(MinBuffer, l3 * 4);
+
         // Два буфера под копирование плюс запас: тест не должен сам вызвать нехватку памяти
-        long buffer = Math.Clamp(available / 6, MinBuffer, MaxBuffer);
+        long buffer = Math.Clamp(available / 6, Math.Min(wanted, MaxBuffer), MaxBuffer);
         buffer -= buffer % (1024 * 1024);
 
         int threads = Environment.ProcessorCount;
 
         log.Report(TestLine.Dim($"Буфер {Fmt.Bytes(buffer)} × 2, потоков {threads}. "
                               + "Замер идёт около пятнадцати секунд."));
+
+        if (l3 > 0 && buffer < l3 * 2)
+        {
+            log.Report(TestLine.Warn($"Кэш процессора — {Fmt.Bytes(l3)}, а свободной памяти хватило только "
+                                   + $"на буфер {Fmt.Bytes(buffer)}."));
+            log.Report(TestLine.Warn("Часть данных останется в кэше, и скорость получится завышенной."));
+            log.Report(TestLine.Warn("Закройте тяжёлые программы и повторите замер."));
+        }
 
         try
         {
@@ -111,6 +171,10 @@ public sealed class RamBenchmark : IDiagnosticTest
         log.Report(TestLine.Dim("   перенесено, а по шине памяти при этом прошло вдвое больше."));
         log.Report(TestLine.Info(Fmt.Row("Чтение одним ядром", $"{r.SingleThreadReadGbs,8:F1} ГБ/с")));
         log.Report(TestLine.Dim("   Одному ядру всю полосу не выбрать — это нормально и так у всех."));
+
+        if (!r.NonTemporalWrites)
+            log.Report(TestLine.Warn("   У процессора нет набора инструкций AVX — замер идёт обычными "
+                                   + "операциями и занижен."));
         log.Report(TestLine.Empty);
 
         var level = r.LatencyNs switch

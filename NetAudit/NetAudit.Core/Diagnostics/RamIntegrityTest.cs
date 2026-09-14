@@ -93,6 +93,15 @@ public sealed class RamIntegrityTest(int passes = 1, double sharePercent = 60) :
         log.Report(TestLine.Dim($"Свободно {Fmt.Bytes(available)}, беру под проверку {Fmt.Bytes(budget)} "
                               + $"({blocks} блоков по {Fmt.Bytes(BlockBytes)})."));
         log.Report(TestLine.Dim($"Проходов: {passes}. Шаблонов в проходе: {Patterns.Length}."));
+
+        // Оценка по опыту прогонов: запись и сверка вместе идут около 6 ГБ/с. Цифра
+        // грубая, но без неё владелец машины с 64 ГБ памяти не догадается, что нажал
+        // на кнопку, которая займёт полчаса
+        double minutes = budget * 2.0 * Patterns.Length * passes / (6.0 * 1024 * 1024 * 1024) / 60;
+        log.Report(TestLine.Dim(minutes >= 1
+            ? $"Займёт примерно {minutes:F0} мин."
+            : $"Займёт примерно {minutes * 60:F0} с."));
+
         log.Report(TestLine.Dim("Пока идёт проверка, компьютер будет ощутимо задумчивым — это нормально."));
         log.Report(TestLine.Empty);
 

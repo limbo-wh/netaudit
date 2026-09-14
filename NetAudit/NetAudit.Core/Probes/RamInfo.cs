@@ -73,12 +73,20 @@ public sealed class RamInfo
     /// <summary>Рабочая частота, МТ/с: берём по самому медленному модулю — так работает контроллер.</summary>
     public int ConfiguredMts => Modules.Count == 0 ? 0 : Modules.Min(m => m.ConfiguredMts);
 
-    /// <summary>Сколько разных каналов задействовано. Два и больше — двухканальный режим.</summary>
+    /// <summary>
+    /// Сколько разных каналов задействовано. Ноль означает не «нет каналов», а
+    /// «BIOS назвал банки так, что канал из имени не вычитывается» — см.
+    /// <see cref="ChannelsKnown"/>: путать эти два случая нельзя, из первого следует
+    /// одноканальный режим, из второго не следует ничего.
+    /// </summary>
     public int ChannelsUsed => Modules
         .Where(m => m.Channel.Length > 0)
         .Select(m => m.Channel)
         .Distinct()
         .Count();
+
+    /// <summary>Удалось ли вообще определить каналы: у каждого модуля должен быть свой.</summary>
+    public bool ChannelsKnown => Modules.Count > 0 && Modules.All(m => m.Channel.Length > 0);
 
     /// <summary>Модули из разных комплектов: разные партномера или объёмы. Частая причина нестабильности.</summary>
     public bool MixedModules =>
@@ -89,15 +97,23 @@ public sealed class RamInfo
     /// <summary>
     /// Теоретический предел пропускной способности, ГБ/с: частота × 8 байт на канал.
     /// Столько отдаёт контроллер памяти в идеале, реальные замеры всегда ниже.
+    ///
+    /// Ноль, если каналы определить не удалось: подставить «один канал» наугад —
+    /// значит вдвое занизить предел и получить в отчёте «достигнуто 120% от предела».
     /// </summary>
-    public double TheoreticalGbs
-    {
-        get
-        {
-            int channels = Math.Max(1, ChannelsUsed);
-            return ConfiguredMts * 8.0 * channels / 1000.0;
-        }
-    }
+    public double TheoreticalGbs =>
+        ChannelsKnown && ConfiguredMts > 0 ? ConfiguredMts * 8.0 * ChannelsUsed / 1000.0 : 0;
+
+    /// <summary>
+    /// Обозначения слотов, которые BIOS перечислил как пустые.
+    ///
+    /// Верить этому списку как физическому нельзя: прошивка регулярно описывает
+    /// возможности контроллера памяти процессора, а не то, что разведено на плате.
+    /// Проверено на Gigabyte B450M S2H — BIOS сообщает четыре слота (DIMM 0 и DIMM 1
+    /// в каждом из двух каналов) при двух настоящих. Поэтому отчёт показывает это
+    /// как слова BIOS, а не как факт, и советует сверяться со спецификацией платы.
+    /// </summary>
+    public IReadOnlyList<string> EmptySlots { get; init; } = [];
 }
 
 /// <summary>Мгновенный срез: сколько памяти занято и чем именно.</summary>

@@ -115,27 +115,34 @@ public sealed class RamDiagnosticTest(
         string type = info.TypeName.Length > 0 ? info.TypeName + " " : "";
         log.Report(TestLine.Info(Fmt.Row("Установлено",
             $"{Fmt.Bytes(info.InstalledBytes)} {type}— {info.SlotsUsed} "
-          + $"{Plural(info.SlotsUsed, "модуль", "модуля", "модулей")} из {info.SlotsTotal} "
-          + $"{Plural(info.SlotsTotal, "слота", "слотов", "слотов")}")));
+          + $"{Plural(info.SlotsUsed, "модуль", "модуля", "модулей")}")));
 
         log.Report(TestLine.Info(Fmt.Row("Рабочая частота", $"{info.ConfiguredMts} МТ/с")));
 
-        var channelLevel = info.ChannelsUsed >= 2 ? TestLevel.Good
-                         : info.SlotsUsed > 1 ? TestLevel.Info : TestLevel.Warn;
-        log.Report(new TestLine(Fmt.Row("Режим работы", info.ChannelsUsed switch
+        if (!info.ChannelsKnown)
         {
-            >= 4 => "четырёхканальный",
-            3    => "трёхканальный",
-            2    => "двухканальный",
-            1    => "одноканальный",
-            _    => "не определился",
-        }), channelLevel));
+            // Каналы вычитываются из названия банка, а называет их BIOS как хочет.
+            // Не разобрали — так и говорим: угадать «одноканальный» значило бы
+            // вдвое занизить теоретический предел и переврать все выводы ниже
+            log.Report(TestLine.Dim(Fmt.Row("Режим работы",
+                "BIOS не назвал каналы — определить не удалось")));
+        }
+        else
+        {
+            var channelLevel = info.ChannelsUsed >= 2 ? TestLevel.Good : TestLevel.Warn;
+            log.Report(new TestLine(Fmt.Row("Режим работы", info.ChannelsUsed switch
+            {
+                >= 4 => "четырёхканальный",
+                3    => "трёхканальный",
+                2    => "двухканальный",
+                _    => "одноканальный",
+            }), channelLevel));
 
-        if (info.TheoreticalGbs > 0)
-            log.Report(TestLine.Dim($"   Теоретический предел контроллера: {info.TheoreticalGbs:F1} ГБ/с"));
+            if (info.TheoreticalGbs > 0)
+                log.Report(TestLine.Dim($"   Теоретический предел контроллера: {info.TheoreticalGbs:F1} ГБ/с"));
+        }
 
-        if (info.MaxCapacityBytes > 0)
-            log.Report(TestLine.Info(Fmt.Row("Плата держит до", Fmt.Bytes(info.MaxCapacityBytes))));
+        ReportSlots(log, info);
 
         if (info.ErrorCorrection.Length > 0)
             log.Report(TestLine.Info(Fmt.Row("Коррекция ошибок", info.ErrorCorrection)));
@@ -185,6 +192,44 @@ public sealed class RamDiagnosticTest(
             log.Report(TestLine.Dim("   а совместимость разных планок на высоких частотах — известный"));
             log.Report(TestLine.Dim("   источник редких сбоев. Если система нестабильна, это первый подозреваемый."));
             log.Report(TestLine.Empty);
+        }
+    }
+
+    /// <summary>
+    /// Слоты — единственная часть паспорта, где BIOS систематически врёт, поэтому
+    /// она вынесена отдельно и подаётся как слова прошивки, а не как факт.
+    ///
+    /// Проверено на Gigabyte B450M S2H: SMBIOS сообщает четыре слота и потолок в
+    /// 128 ГБ, тогда как на плате их физически два, а официальный потолок — 32 ГБ.
+    /// Прошивка описывает возможности контроллера памяти процессора, и на компактных
+    /// платах это расходится с реальностью. Совет «доставьте ещё две планки»,
+    /// выданный по такой цифре, стоил бы владельцу лишней покупки.
+    /// </summary>
+    private static void ReportSlots(IProgress<TestLine> log, RamInfo info)
+    {
+        if (info.SlotsTotal > info.SlotsUsed)
+        {
+            log.Report(TestLine.Info(Fmt.Row("Слотов, по данным BIOS",
+                $"{info.SlotsTotal}, занято {info.SlotsUsed}")));
+
+            if (info.EmptySlots.Count > 0)
+                log.Report(TestLine.Dim($"   Свободными названы: {string.Join(", ", info.EmptySlots)}"));
+
+            log.Report(TestLine.Warn("   Этой цифре верить нельзя без проверки: прошивка часто описывает"));
+            log.Report(TestLine.Warn("   возможности контроллера памяти процессора, а не разведённые на плате"));
+            log.Report(TestLine.Warn("   слоты. Перед покупкой планок посмотрите на саму плату или её"));
+            log.Report(TestLine.Warn("   спецификацию — модель платы показана в карточке железа."));
+        }
+        else if (info.SlotsTotal > 0)
+        {
+            log.Report(TestLine.Info(Fmt.Row("Слотов, по данным BIOS",
+                $"{info.SlotsTotal}, все заняты")));
+        }
+
+        if (info.MaxCapacityBytes > 0)
+        {
+            log.Report(TestLine.Dim(Fmt.Row("   потолок по данным BIOS", Fmt.Bytes(info.MaxCapacityBytes))));
+            log.Report(TestLine.Dim("   Та же оговорка: это потолок процессора, у платы он обычно ниже."));
         }
     }
 
@@ -450,7 +495,7 @@ public sealed class RamDiagnosticTest(
         log.Report(TestLine.Dim("   Предел считается по частоте и числу каналов; 70–90% для настольной"));
         log.Report(TestLine.Dim("   машины — норма, остальное съедают накладные расходы контроллера."));
 
-        if (efficiency < 50 && info.ChannelsUsed >= 2)
+        if (efficiency < 50 && info.ChannelsKnown && info.ChannelsUsed >= 2)
             log.Report(TestLine.Warn("   Заметно ниже ожидаемого. Проверьте, не занят ли компьютер чем-то ещё."));
 
         log.Report(TestLine.Empty);
@@ -514,22 +559,18 @@ public sealed class RamDiagnosticTest(
                 log.Report(TestLine.Dim("   На глаз это ощущается как задержка при переключении на давно"));
                 log.Report(TestLine.Dim("   не тронутое окно и просадки при заходе в игру со свёрнутым браузером."));
 
-                if (info is { } i && i.SlotsUsed < i.SlotsTotal)
+                if (info is { } i && i.Modules.Count > 0)
                 {
-                    double moduleGb = i.Modules.Count > 0
-                        ? i.Modules[0].CapacityBytes / 1024.0 / 1024 / 1024 : 0;
+                    double moduleGb = i.Modules[0].CapacityBytes / 1024.0 / 1024 / 1024;
 
-                    log.Report(TestLine.Good($"   Свободных слотов: {i.SlotsTotal - i.SlotsUsed} — "
-                                           + "память можно добавить, не выбрасывая имеющуюся."));
-
-                    if (moduleGb > 0)
-                        log.Report(TestLine.Dim($"   Две такие же планки по {moduleGb:F0} ГБ дадут "
-                                              + $"{totalGb + moduleGb * 2:F0} ГБ. Брать желательно тот же комплект:"));
-                    log.Report(TestLine.Dim("   разные планки контроллер сводит по слабейшей, а на высоких"));
-                    log.Report(TestLine.Dim("   частотах они ещё и не всегда уживаются."));
+                    log.Report(TestLine.Dim("   Расширение зависит от того, сколько слотов на плате на самом"));
+                    log.Report(TestLine.Dim("   деле — BIOS в этом вопросе ненадёжен (см. раздел «Паспорт»)."));
+                    log.Report(TestLine.Dim($"   Если слоты свободны: две планки по {moduleGb:F0} ГБ доведут объём"));
+                    log.Report(TestLine.Dim($"   до {totalGb + moduleGb * 2:F0} ГБ. Если все заняты — только замена комплекта,"));
+                    log.Report(TestLine.Dim($"   например на {totalGb * 2:F0} ГБ двумя планками."));
+                    log.Report(TestLine.Dim("   Брать желательно один комплект: разные планки контроллер сводит"));
+                    log.Report(TestLine.Dim("   по слабейшей, а на высоких частотах они ещё и не всегда уживаются."));
                 }
-                else if (info is not null)
-                    log.Report(TestLine.Dim("   Свободных слотов нет: расширение — только заменой планок."));
             }
             else
             {
@@ -570,14 +611,14 @@ public sealed class RamDiagnosticTest(
                 }
             }
 
-            if (info.ChannelsUsed == 1 && info.SlotsUsed == 1)
+            if (info.ChannelsKnown && info.ChannelsUsed == 1 && info.SlotsUsed == 1)
             {
                 log.Report(TestLine.Empty);
                 log.Report(TestLine.Warn("Одна планка — одноканальный режим. Вторая такая же почти удваивает"));
                 log.Report(TestLine.Warn("пропускную способность; в играх и во встроенной графике это самый"));
                 log.Report(TestLine.Warn("дешёвый способ прибавить кадров."));
             }
-            else if (info.ChannelsUsed == 1 && info.SlotsUsed > 1)
+            else if (info.ChannelsKnown && info.ChannelsUsed == 1 && info.SlotsUsed > 1)
             {
                 log.Report(TestLine.Empty);
                 log.Report(TestLine.Bad("Планок несколько, но канал один — они стоят в слотах одного канала."));
