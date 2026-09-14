@@ -920,7 +920,20 @@
                                     Click="OnNetworkReset" Style="{StaticResource TestBtnDanger}"
                                     ToolTip="Перезапускает сеть, не перезагружая Windows. Потребуются права администратора."/>
 
-                            <TextBlock Text="ПАМЯТЬ" Style="{StaticResource TestGroup}"/>
+                            <TextBlock Text="ОПЕРАТИВНАЯ ПАМЯТЬ" Style="{StaticResource TestGroup}"/>
+
+                            <Button Content="▶  Полная диагностика ОЗУ" Click="OnRamFullDiagnostic"
+                                    Style="{StaticResource TestBtnPrimary}"
+                                    ToolTip="Что за планки стоят и как настроены, включён ли профиль XMP, двухканальный ли режим, чем занята память сейчас, следы сбоев по памяти в журналах Windows, скорость и задержка. Около двадцати секунд."/>
+                            <Button Content="Паспорт и состояние" Click="OnRamPassport"
+                                    Style="{StaticResource TestBtn}"
+                                    ToolTip="Модули, слоты, частота, ранги, каналы. Сколько памяти занято и кем, сжатая память, файл подкачки, синие экраны по памяти. Мгновенно, без нагрузки."/>
+                            <Button Content="Скорость памяти" Click="OnRamBenchmark"
+                                    Style="{StaticResource TestBtn}"
+                                    ToolTip="Чтение, запись, копирование и задержка случайного доступа. Плюс лесенка по размеру блока, на которой видно кэши процессора и границу, где начинается ОЗУ."/>
+                            <Button Content="Проверка памяти (MemTest)" Click="OnRamIntegrityTest"
+                                    Style="{StaticResource TestBtn}"
+                                    ToolTip="Записывает в свободную память проверочные шаблоны и сверяет прочитанное — так ловятся сбойные ячейки, дающие синие экраны и вылеты без причины. Занимает большую часть свободной памяти на несколько минут."/>
 
                             <Button Content="Очистить кэш ОЗУ" Click="OnClearRamCache"
                                     Style="{StaticResource TestBtn}"

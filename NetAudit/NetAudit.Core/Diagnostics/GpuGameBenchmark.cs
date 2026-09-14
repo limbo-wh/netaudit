@@ -426,7 +426,7 @@ public sealed class GpuGameBenchmark(int seconds = 12) : IDiagnosticTest
 
         ctx.VSSetShader(_vs);
         ctx.PSSetShader(_ps);
-        ctx.PSSetShaderResource(0, _srv);
+        ctx.PSSetShaderResource(0, _srv!);
         ctx.PSSetSampler(0, _sampler);
         ctx.PSSetConstantBuffer(0, _constants);
 

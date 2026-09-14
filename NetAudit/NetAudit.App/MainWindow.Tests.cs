@@ -440,6 +440,55 @@ public partial class MainWindow
 
     // ── Память ────────────────────────────────────────────────────────────
 
+    /// <summary>Всё сразу, кроме долгой проверки шаблонами: паспорт, состояние, журналы, замеры.</summary>
+    private async void OnRamFullDiagnostic(object sender, RoutedEventArgs e)
+    {
+        BottomTabs.SelectedItem = TestTab;
+        await RunAsync(new RamDiagnosticTest());
+    }
+
+    /// <summary>Только чтение: что за планки стоят, как настроены и чем занята память прямо сейчас.</summary>
+    private async void OnRamPassport(object sender, RoutedEventArgs e)
+    {
+        BottomTabs.SelectedItem = TestTab;
+        await RunAsync(new RamDiagnosticTest(
+            RamDiagnosticParts.Passport | RamDiagnosticParts.Usage | RamDiagnosticParts.Health));
+    }
+
+    private async void OnRamBenchmark(object sender, RoutedEventArgs e)
+    {
+        BottomTabs.SelectedItem = TestTab;
+        await RunAsync(new RamDiagnosticTest(
+            RamDiagnosticParts.Passport | RamDiagnosticParts.Benchmark));
+    }
+
+    /// <summary>
+    /// Проверка шаблонами — отдельной кнопкой и с предупреждением: она занимает
+    /// большую часть свободной памяти, и работать за машиной в это время неприятно.
+    /// </summary>
+    private async void OnRamIntegrityTest(object sender, RoutedEventArgs e)
+    {
+        if (TestRunning)
+        {
+            MessageBox.Show(this, "Сначала дождитесь конца текущего теста.", "NetAudit",
+                            MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var answer = MessageBox.Show(this,
+            "Тест займёт большую часть свободной оперативной памяти и будет писать в неё " +
+            "проверочные шаблоны, сверяя прочитанное.\n\n" +
+            "Пока он идёт, компьютер будет заметно задумчивым. Закройте игры и тяжёлые программы.\n\n" +
+            "Занимает несколько минут. Продолжить?",
+            "Проверка оперативной памяти",
+            MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel);
+
+        if (answer != MessageBoxResult.OK) return;
+
+        BottomTabs.SelectedItem = TestTab;
+        await RunAsync(new RamIntegrityTest(passes: 2));
+    }
+
     private async void OnClearRamCache(object sender, RoutedEventArgs e)
     {
         if (TestRunning)
