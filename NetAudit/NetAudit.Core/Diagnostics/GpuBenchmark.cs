@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Vortice.D3DCompiler;
 using Vortice.Direct3D;
 using Vortice.Direct3D11;
@@ -52,6 +52,9 @@ public sealed class GpuBenchmark : IDiagnosticTest
     public string Title => "Замеры производительности видеокарты";
 
     private const long BufferBytes = 256L * 1024 * 1024;
+
+    /// <summary>Фактический размер буфера: на слабой видеокарте уменьшается.</summary>
+    private long _bufferBytes = 256L * 1024 * 1024;
     private const int GroupSize = 256;
 
     /// <summary>Сколько повторов каждого замера; берётся лучший — он ближе к истине.</summary>
@@ -141,11 +144,11 @@ public sealed class GpuBenchmark : IDiagnosticTest
         {
             if (!Initialize(log)) return;
 
-            long elements = BufferBytes / 16;   // float4
+            long elements = _bufferBytes / 16;   // float4
 
-            double read  = Measure(() => Dispatch(0, elements, 0), BufferBytes, ct);
-            double write = Measure(() => Dispatch(1, elements, 0), BufferBytes, ct);
-            double copy  = Measure(() => Dispatch(2, elements, 0), BufferBytes * 2, ct);
+            double read  = Measure(() => Dispatch(0, elements, 0), _bufferBytes, ct);
+            double write = Measure(() => Dispatch(1, elements, 0), _bufferBytes, ct);
+            double copy  = Measure(() => Dispatch(2, elements, 0), _bufferBytes * 2, ct);
 
             log.Report(TestLine.Info(Fmt.Row("Чтение из видеопамяти", $"{read,8:F0} ГБ/с")));
             log.Report(TestLine.Info(Fmt.Row("Запись в видеопамять", $"{write,8:F0} ГБ/с")));
@@ -208,8 +211,36 @@ public sealed class GpuBenchmark : IDiagnosticTest
         }
         using (blob) { _shader = _device.CreateComputeShader(blob.AsSpan()); }
 
-        _a = CreateStructured(BufferBytes, 16);
-        _b = CreateStructured(BufferBytes, 16);
+        // Буфер уменьшается, пока видеокарта не согласится его дать. Четверть
+        // гигабайта на буфер — это про дискретные карты; у встроенной графики
+        // память общая с системной и её может не оказаться вовсе, а падать
+        // с ошибкой выделения там, где достаточно померить на меньшем объёме,
+        // незачем
+        foreach (long size in new[] { BufferBytes, 128L << 20, 64L << 20, 32L << 20, 16L << 20 })
+        {
+            try
+            {
+                _a = CreateStructured(size, 16);
+                _b = CreateStructured(size, 16);
+                _bufferBytes = size;
+                break;
+            }
+            catch
+            {
+                _a?.Dispose(); _a = null;
+                _b?.Dispose(); _b = null;
+            }
+        }
+
+        if (_a is null || _b is null)
+        {
+            log.Report(TestLine.Bad("Не удалось выделить память видеокарты под замер"));
+            return false;
+        }
+
+        if (_bufferBytes < BufferBytes)
+            log.Report(TestLine.Dim($"Памяти видеокарты немного — замер идёт на буфере {Fmt.Bytes(_bufferBytes)}"));
+
         _aUav = _device.CreateUnorderedAccessView(_a);
         _bUav = _device.CreateUnorderedAccessView(_b);
 
@@ -221,9 +252,9 @@ public sealed class GpuBenchmark : IDiagnosticTest
 
         // Для замера шины: staging читается процессором, upload им же пишется
         _staging = _device.CreateBuffer(new BufferDescription(
-            (uint)BufferBytes, BindFlags.None, ResourceUsage.Staging, CpuAccessFlags.Read));
+            (uint)_bufferBytes, BindFlags.None, ResourceUsage.Staging, CpuAccessFlags.Read));
         _upload = _device.CreateBuffer(new BufferDescription(
-            (uint)BufferBytes, BindFlags.None, ResourceUsage.Staging, CpuAccessFlags.Write));
+            (uint)_bufferBytes, BindFlags.None, ResourceUsage.Staging, CpuAccessFlags.Write));
 
         return true;
     }
@@ -326,7 +357,7 @@ public sealed class GpuBenchmark : IDiagnosticTest
             ctx.CopyResource(_a!, _upload!);
             Sync();
             sw.Stop();
-            upload = Math.Max(upload, BufferBytes / sw.Elapsed.TotalSeconds / (1024.0 * 1024 * 1024));
+            upload = Math.Max(upload, _bufferBytes / sw.Elapsed.TotalSeconds / (1024.0 * 1024 * 1024));
 
             // Из карты: копируем в staging и ждём, пока станет доступен процессору
             sw.Restart();
@@ -334,7 +365,7 @@ public sealed class GpuBenchmark : IDiagnosticTest
             var m = ctx.Map(_staging!, 0, MapMode.Read);
             ctx.Unmap(_staging!, 0);
             sw.Stop();
-            download = Math.Max(download, BufferBytes / sw.Elapsed.TotalSeconds / (1024.0 * 1024 * 1024));
+            download = Math.Max(download, _bufferBytes / sw.Elapsed.TotalSeconds / (1024.0 * 1024 * 1024));
         }
 
         return (upload, download);
