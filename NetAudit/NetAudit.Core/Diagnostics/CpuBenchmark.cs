@@ -179,18 +179,37 @@ public sealed class CpuBenchmark(int soakSeconds = 15) : IDiagnosticTest
 
         int cores = Environment.ProcessorCount;
         double gainPercent = cores > 0 ? r.MultiThreadGain / cores * 100 : 0;
-        var gainLevel = gainPercent >= 70 ? TestLevel.Good : gainPercent >= 45 ? TestLevel.Warn : TestLevel.Bad;
+
+        // У гибридных процессоров Intel экономичные ядра слабее быстрых в полтора-два
+        // раза, и низкая отдача «на поток» там заложена устройством, а не поломкой.
+        // Прежний вердикт объявлял исправный i7-13700K сбрасывающим частоту
+        var info = Probes.CpuInfoProbe.Collect();
+        bool hybrid = info.IsHybrid;
+
+        var gainLevel = hybrid
+            ? TestLevel.Info
+            : gainPercent >= 70 ? TestLevel.Good : gainPercent >= 45 ? TestLevel.Warn : TestLevel.Bad;
 
         log.Report(new TestLine(Fmt.Row("Прирост от всех потоков",
             $"×{r.MultiThreadGain:F1} из ×{cores}   ({gainPercent:F0}%)"), gainLevel));
 
-        log.Report(TestLine.Dim(gainPercent switch
+        if (hybrid)
         {
-            >= 70 => "   Хороший прирост: частота под многопоточной нагрузкой держится.",
-            >= 45 => "   Типично для процессора с многопоточностью на ядре: второй поток "
-                   + "на том же ядре даёт не полный прирост.",
-            _     => "   Низкий прирост. Обычно это сброс частоты под нагрузкой всех ядер.",
-        }));
+            log.Report(TestLine.Dim($"   У процессора {info.PerformanceCores} быстрых и "
+                                  + $"{info.EfficiencyCores} экономичных ядер — сравнивать прирост"));
+            log.Report(TestLine.Dim("   с числом потоков здесь нельзя: экономичные ядра слабее быстрых,"));
+            log.Report(TestLine.Dim("   и отдача ниже по устройству процессора, а не из-за перегрева."));
+        }
+        else
+        {
+            log.Report(TestLine.Dim(gainPercent switch
+            {
+                >= 70 => "   Хороший прирост: частота под многопоточной нагрузкой держится.",
+                >= 45 => "   Типично для процессора с многопоточностью на ядре: второй поток "
+                       + "на том же ядре даёт не полный прирост.",
+                _     => "   Низкий прирост. Обычно это сброс частоты под нагрузкой всех ядер.",
+            }));
+        }
 
         if (r.HasFma)
         {
@@ -283,17 +302,23 @@ public sealed class CpuBenchmark(int soakSeconds = 15) : IDiagnosticTest
         {
             var tempLevel = r.TempPeakC switch
             {
-                < 75 => TestLevel.Good,
-                < 90 => TestLevel.Warn,
-                _    => TestLevel.Bad,
+                < ThermalLimits.CpuComfortableC => TestLevel.Good,
+                < ThermalLimits.CpuWarnC        => TestLevel.Info,
+                _                               => TestLevel.Warn,
             };
             string start = double.IsNaN(r.TempStartC) ? "" : $"   (в начале {r.TempStartC:F0} °C)";
             log.Report(new TestLine(Fmt.Row("Температура под нагрузкой", $"{r.TempPeakC,8:F0} °C{start}"), tempLevel));
 
-            if (r.TempPeakC >= 90)
-                log.Report(TestLine.Bad("   Горячо. Проверьте кулер и термопасту: при таких температурах"));
-            else if (r.TempPeakC >= 75)
-                log.Report(TestLine.Dim("   Тепло, но в пределах допустимого для процессора."));
+            if (r.TempPeakC >= ThermalLimits.CpuWarnC)
+            {
+                log.Report(TestLine.Warn("   Горячо. Если при этом падает частота (строка «Падение за время"));
+                log.Report(TestLine.Warn("   нагрузки» выше) — стоит посмотреть кулер и термопасту."));
+                log.Report(TestLine.Dim("   " + ThermalLimits.ModernHardwareNote));
+            }
+            else if (r.TempPeakC >= ThermalLimits.CpuComfortableC)
+            {
+                log.Report(TestLine.Dim("   Тепло, но в пределах нормального рабочего режима."));
+            }
         }
         else
         {
@@ -363,11 +388,16 @@ public sealed class CpuBenchmark(int soakSeconds = 15) : IDiagnosticTest
 
         if (threads == 1) return BestCoreGhz(physical, step, logical, ct);
 
+        // Если физические ядра не определились, их окажется одно — и «частота на всех
+        // ядрах» замерялась бы на единственном потоке, совпадая с частотой одного ядра.
+        // В таком случае честнее занять все логические
+        int cores = physical > 1 ? physical : logical;
+
         // Все ядра сразу: по одному потоку на каждое, среднее по ним
         var window = TimeSpan.FromSeconds(2);
-        var tasks = new Task<double>[physical];
+        var tasks = new Task<double>[cores];
 
-        for (int i = 0; i < physical; i++)
+        for (int i = 0; i < cores; i++)
         {
             int cpu = (i * step) % logical;
             tasks[i] = Task.Run(() =>

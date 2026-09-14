@@ -136,6 +136,9 @@ public sealed class GpuGameBenchmark(int seconds = 12) : IDiagnosticTest
         }
         """;
 
+    /// <summary>Сколько ждать видеокарту, прежде чем считать, что драйвер сорвался.</summary>
+    private static readonly TimeSpan SyncTimeout = TimeSpan.FromSeconds(10);
+
     private ID3D11Device? _device;
     private ID3D11DeviceContext? _context;
     private ID3D11VertexShader? _vs;
@@ -301,13 +304,14 @@ public sealed class GpuGameBenchmark(int seconds = 12) : IDiagnosticTest
     {
         var levels = new[] { FeatureLevel.Level_11_1, FeatureLevel.Level_11_0 };
 
-        var hr = D3D11.D3D11CreateDevice(
-            null, DriverType.Hardware, DeviceCreationFlags.None, levels,
-            out ID3D11Device? device, out _, out ID3D11DeviceContext? context);
+        // Тот же адаптер, что и в остальных замерах, — см. GpuDeviceFactory
+        var created = GpuDeviceFactory.Create(levels, DeviceCreationFlags.None);
+        var device = created?.Device;
+        var context = created?.Context;
 
-        if (hr.Failure || device is null || context is null)
+        if (device is null || context is null)
         {
-            log.Report(TestLine.Bad($"Не удалось создать устройство Direct3D 11: {hr.Description}"));
+            log.Report(TestLine.Bad("Не удалось создать устройство Direct3D 11"));
             return false;
         }
 
@@ -443,8 +447,20 @@ public sealed class GpuGameBenchmark(int seconds = 12) : IDiagnosticTest
         ctx.End(query);
         ctx.Flush();
 
+        // Ждём не бесконечно: после срыва видеодрайвера (TDR) запрос никогда не
+        // завершится, и прежний цикл жёг целое ядро до самого закрытия программы,
+        // не реагируя даже на кнопку «Остановить»
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+
         while (!ctx.GetData(query, out int done) || done == 0)
+        {
+            if (sw.Elapsed > SyncTimeout)
+                throw new TimeoutException(
+                    "Видеокарта не ответила за " + SyncTimeout.TotalSeconds.ToString("F0") +
+                    " с — похоже на срыв драйвера. Тест остановлен.");
+
             Thread.SpinWait(64);
+        }
     }
 
     private void Cleanup()

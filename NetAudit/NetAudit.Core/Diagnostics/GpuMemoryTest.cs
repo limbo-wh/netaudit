@@ -36,8 +36,15 @@ public sealed class GpuMemoryTest(int passes = 2) : IDiagnosticTest
     /// <summary>Размер одного блока. 256 МБ — компромисс между дроблением и гибкостью.</summary>
     private const long BlockBytes = 256L * 1024 * 1024;
 
-    /// <summary>Сколько видеопамяти оставить системе: рабочий стол и окна тоже в ней живут.</summary>
-    private const long ReserveBytes = 1200L * 1024 * 1024;
+    /// <summary>
+    /// Какую долю свободной видеопамяти оставить системе: рабочий стол и окна тоже
+    /// в ней живут. Доля, а не постоянная величина: прежние 1200 МБ на карте с 2 ГБ
+    /// не оставляли под проверку почти ничего, а на карте с 24 ГБ были каплей.
+    /// </summary>
+    private const double ReserveShare = 0.2;
+
+    /// <summary>Меньше этого не оставляем в любом случае — рабочему столу нужно место.</summary>
+    private const long MinReserveBytes = 300L * 1024 * 1024;
 
     private const int GroupSize = 256;
 
@@ -147,11 +154,15 @@ public sealed class GpuMemoryTest(int passes = 2) : IDiagnosticTest
 
             sw.Stop();
 
-            // Каждый шаблон — это полная запись и полное чтение всего занятого
-            double moved = allocated * passes * 6.0 * 2;
+            // Каждый шаблон — это полная запись и полное чтение всего занятого.
+            // Число шаблонов берём у самого набора: вручную вписанная шестёрка
+            // соврала бы при первой же правке списка
+            int patternCount = Patterns().Count();
+            double moved = allocated * passes * patternCount * 2.0;
 
             log.Report(TestLine.Empty);
-            log.Report(TestLine.Info(Fmt.Row("Проверено всего", Fmt.Bytes(allocated * passes * 6.0))));
+            log.Report(TestLine.Info(Fmt.Row("Проверено всего",
+                Fmt.Bytes(allocated * passes * (double)patternCount))));
             log.Report(TestLine.Info(Fmt.Row("Время", $"{sw.Elapsed.TotalSeconds:F1} с")));
 
             if (sw.Elapsed.TotalSeconds > 0.05)
@@ -283,7 +294,12 @@ public sealed class GpuMemoryTest(int passes = 2) : IDiagnosticTest
     /// </summary>
     private long AllocateBlocks(IProgress<TestLine> log, CancellationToken ct)
     {
-        long budget = long.MaxValue;
+        // Потолок на случай, когда узнать бюджет не удалось (старый драйвер, удалённый
+        // рабочий стол). Раньше здесь стоял long.MaxValue, и на встроенной графике,
+        // где видеопамять общая с системной, тест выгребал гигабайты оперативной
+        // памяти до самого свопа — машина вставала колом
+        long budget = 2L * 1024 * 1024 * 1024;
+        bool budgetKnown = false;
 
         try
         {
@@ -298,12 +314,23 @@ public sealed class GpuMemoryTest(int passes = 2) : IDiagnosticTest
                     {
                         var info = adapter3.QueryVideoMemoryInfo(0, Vortice.DXGI.MemorySegmentGroup.Local);
                         long available = (long)info.Budget - (long)info.CurrentUsage;
-                        budget = Math.Max(0, available - ReserveBytes);
+
+                        // Резерв — доля объёма, а не постоянные 1200 МБ: на карте с
+                        // 2 ГБ такой резерв оставлял под проверку один блок, а на
+                        // карте с 24 ГБ отнимал незаметную мелочь
+                        long reserve = Math.Max(MinReserveBytes, (long)(available * ReserveShare));
+
+                        budget = Math.Max(0, available - reserve);
+                        budgetKnown = true;
                     }
                 }
             }
         }
         catch { }
+
+        if (!budgetKnown)
+            log.Report(TestLine.Warn("Драйвер не сообщил, сколько видеопамяти свободно — "
+                                   + $"беру не больше {Fmt.Bytes(budget)}."));
 
         long allocated = 0;
 

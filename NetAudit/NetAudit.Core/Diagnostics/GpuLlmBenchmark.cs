@@ -116,6 +116,9 @@ public sealed class GpuLlmBenchmark : IDiagnosticTest
         }
         """;
 
+    /// <summary>Сколько ждать видеокарту, прежде чем считать, что драйвер сорвался.</summary>
+    private static readonly TimeSpan SyncTimeout = TimeSpan.FromSeconds(10);
+
     private ID3D11Device? _device;
     private ID3D11DeviceContext? _context;
     private ID3D11ComputeShader? _shader;
@@ -191,13 +194,14 @@ public sealed class GpuLlmBenchmark : IDiagnosticTest
     {
         var levels = new[] { FeatureLevel.Level_11_1, FeatureLevel.Level_11_0 };
 
-        var hr = D3D11.D3D11CreateDevice(
-            null, DriverType.Hardware, DeviceCreationFlags.None, levels,
-            out ID3D11Device? device, out _, out ID3D11DeviceContext? context);
+        // Тот же адаптер, что и в остальных замерах, — см. GpuDeviceFactory
+        var created = GpuDeviceFactory.Create(levels, DeviceCreationFlags.None);
+        var device = created?.Device;
+        var context = created?.Context;
 
-        if (hr.Failure || device is null || context is null)
+        if (device is null || context is null)
         {
-            log.Report(TestLine.Bad($"Не удалось создать устройство Direct3D 11: {hr.Description}"));
+            log.Report(TestLine.Bad("Не удалось создать устройство Direct3D 11"));
             return false;
         }
 
@@ -248,9 +252,44 @@ public sealed class GpuLlmBenchmark : IDiagnosticTest
         }
     }
 
+    /// <summary>
+    /// Подбирает число итераций под скорость карты: цель — вызов около 40 мс.
+    /// Начинаем с малого и увеличиваем, иначе первый же пробный вызов на слабой
+    /// карте окажется тем самым долгим, от которого мы и защищаемся.
+    /// </summary>
+    private uint Calibrate(bool half, CancellationToken ct)
+    {
+        const double TargetMs = 40;
+        const uint MaxIterations = 8192;
+
+        uint probe = 32;
+        double ms;
+
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var sw = Stopwatch.StartNew();
+            Dispatch(half, probe);
+            Sync();
+            sw.Stop();
+
+            ms = sw.Elapsed.TotalMilliseconds;
+            if (ms >= 1) break;
+            if (probe >= MaxIterations) return MaxIterations;
+
+            probe *= 4;
+        }
+
+        return (uint)Math.Clamp(probe * (TargetMs / ms), 16, MaxIterations);
+    }
+
     private double Measure(bool half, CancellationToken ct)
     {
-        const uint Iterations = 4096;
+        // Подбираем нагрузку под конкретную карту. Прежние жёсткие 4096 итераций на
+        // встроенной графике считались дольше двух секунд — порога, после которого
+        // Windows перезапускает видеодрайвер
+        uint Iterations = Calibrate(half, ct);
         double best = 0;
 
         // Прогрев: первый вызов включает компиляцию под конкретную карту
@@ -265,6 +304,8 @@ public sealed class GpuLlmBenchmark : IDiagnosticTest
             Dispatch(half, Iterations);
             Sync();
             sw.Stop();
+
+            if (sw.Elapsed.TotalSeconds <= 0) continue;   // иначе в отчёт попадёт бесконечность
 
             // 4 цепочки × 4 компоненты × (умножение + сложение)
             double flops = (double)ElementCount * Iterations * 32;
@@ -298,8 +339,20 @@ public sealed class GpuLlmBenchmark : IDiagnosticTest
         ctx.End(query);
         ctx.Flush();
 
+        // Ждём не бесконечно: после срыва видеодрайвера (TDR) запрос никогда не
+        // завершится, и прежний цикл жёг целое ядро до самого закрытия программы,
+        // не реагируя даже на кнопку «Остановить»
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+
         while (!ctx.GetData(query, out int done) || done == 0)
+        {
+            if (sw.Elapsed > SyncTimeout)
+                throw new TimeoutException(
+                    "Видеокарта не ответила за " + SyncTimeout.TotalSeconds.ToString("F0") +
+                    " с — похоже на срыв драйвера. Тест остановлен.");
+
             Thread.SpinWait(64);
+        }
     }
 
     private void Cleanup()

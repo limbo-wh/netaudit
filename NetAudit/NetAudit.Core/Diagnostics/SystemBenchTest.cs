@@ -222,10 +222,29 @@ public sealed class SystemBenchTest(BenchParts parts = BenchParts.All) : IDiagno
         log.Report(TestLine.Empty);
     }
 
+    /// <summary>Самый большой кэш процессора — от него считается размер буфера.</summary>
+    private static long LargestCacheBytes()
+    {
+        try
+        {
+            var info = Probes.CpuInfoProbe.Collect();
+            long best = 0;
+
+            foreach (var c in info.Caches)
+                if (c.SizeBytes > best) best = c.SizeBytes;
+
+            return best;
+        }
+        catch { return 0; }
+    }
+
     private static (double copyGbs, double latencyNs) MeasureMemory(CancellationToken ct)
     {
         // ── Пропускная способность ──────────────────────────────────────────
-        const int Size = 96 * 1024 * 1024;      // заметно больше любого L3, чтобы мерить именно ОЗУ
+        // Раньше здесь стояли постоянные 96 МБ с пометкой «больше любого L3». Это
+        // перестало быть правдой: у Ryzen с 3D-кэшем L3 ровно 96 МБ, у серверных —
+        // до 384 МБ, и буфер целиком помещался в кэш, завышая «скорость памяти» в разы
+        int Size = (int)Math.Clamp(LargestCacheBytes() * 4, 96L * 1024 * 1024, 512L * 1024 * 1024);
         var src = new byte[Size];
         var dst = new byte[Size];
         Random.Shared.NextBytes(src.AsSpan(0, 1024 * 1024));
@@ -293,7 +312,9 @@ public sealed class SystemBenchTest(BenchParts parts = BenchParts.All) : IDiagno
             log.Report(TestLine.Info(Fmt.Row("Последовательное чтение", $"{readMbs,8:F0} МБ/с")));
 
             double best = Math.Max(writeMbs, readMbs);
-            if (best > 1500)
+            if (best > 5000)
+                log.Report(TestLine.Good("   Похоже на быстрый NVMe SSD (PCI Express 4.0 или новее)."));
+            else if (best > 1500)
                 log.Report(TestLine.Good("   Похоже на NVMe SSD."));
             else if (best > 300)
                 log.Report(TestLine.Good("   Похоже на SATA SSD."));

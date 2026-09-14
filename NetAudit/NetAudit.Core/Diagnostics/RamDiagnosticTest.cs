@@ -350,11 +350,22 @@ public sealed class RamDiagnosticTest(
 
         if (u.CompressedBytes > 0)
         {
+            bool significant = u.CompressedBytes > u.TotalBytes / 20;
             var level = u.CompressedBytes > u.TotalBytes / 10 ? TestLevel.Warn : TestLevel.Info;
             log.Report(new TestLine(Fmt.Row("Сжато", Fmt.Bytes(u.CompressedBytes)), level));
-            log.Report(TestLine.Dim("   Windows ужимает редко используемые страницы вместо выгрузки на диск."));
-            log.Report(TestLine.Dim("   Это быстрее подкачки, но стоит процессорного времени — и сам факт"));
-            log.Report(TestLine.Dim("   говорит, что памяти впритык."));
+
+            // Пара мегабайт сжатого — это фоновая работа Windows, а не нехватка памяти.
+            // Прежний текст выносил приговор «памяти впритык» и при 1,2 МБ
+            if (significant)
+            {
+                log.Report(TestLine.Dim("   Windows ужимает редко используемые страницы вместо выгрузки на диск."));
+                log.Report(TestLine.Dim("   Это быстрее подкачки, но стоит процессорного времени — и сам факт"));
+                log.Report(TestLine.Dim("   говорит, что памяти впритык."));
+            }
+            else
+            {
+                log.Report(TestLine.Dim("   Немного — обычная фоновая работа Windows, а не нехватка памяти."));
+            }
         }
 
         if (u.ModifiedBytes > 0)

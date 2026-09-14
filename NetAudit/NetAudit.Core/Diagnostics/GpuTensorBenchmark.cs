@@ -334,7 +334,14 @@ public sealed class GpuTensorBenchmark : IDiagnosticTest
         // Проверяем, что умножение действительно произошло: все входы — единицы,
         // значит каждый элемент результата обязан равняться числу столбцов
         double got = ReadFirst(outBuf, half);
-        if (double.IsNaN(got) || Math.Abs(got - n) > n * 0.02)
+
+        // Допуск для половинной точности шире: при сложении двух тысяч единиц шаг
+        // представления у этой границы равен двум, и карта, накапливающая сумму
+        // в FP16, честно даёт результат, не попадающий в 2% — прежний допуск
+        // объявлял её неисправной
+        double tolerance = half ? 0.06 : 0.02;
+
+        if (double.IsNaN(got) || Math.Abs(got - n) > n * tolerance)
         {
             log.Report(TestLine.Bad(
                 $"   Результат умножения неверен: {got:F1} вместо {n} — замер недостоверен"));
@@ -468,12 +475,16 @@ public sealed class GpuTensorBenchmark : IDiagnosticTest
         _list.Close();
     }
 
-    private void ExecuteAndWait()
+    private void ExecuteAndWait(CancellationToken ct = default)
     {
         _queue!.ExecuteCommandList(_list!);
 
         _fenceValue++;
         _queue.Signal(_fence!, _fenceValue);
+
+        // Ждём не бесконечно: на медленной карте и при отмене пользователем прежний
+        // цикл жёг целое ядро без единого шанса выйти
+        var sw = System.Diagnostics.Stopwatch.StartNew();
 
         while (_fence!.CompletedValue < _fenceValue)
         {
@@ -484,9 +495,18 @@ public sealed class GpuTensorBenchmark : IDiagnosticTest
                 throw new InvalidOperationException(
                     $"устройство Direct3D 12 удалено: {removed.Description}");
 
+            ct.ThrowIfCancellationRequested();
+
+            if (sw.Elapsed > WaitTimeout)
+                throw new TimeoutException(
+                    $"видеокарта не завершила работу за {WaitTimeout.TotalSeconds:F0} с");
+
             Thread.SpinWait(64);
         }
     }
+
+    /// <summary>Сколько ждать видеокарту, прежде чем считать, что она не ответит.</summary>
+    private static readonly TimeSpan WaitTimeout = TimeSpan.FromSeconds(20);
 
     private string DeviceRemovedReason()
     {

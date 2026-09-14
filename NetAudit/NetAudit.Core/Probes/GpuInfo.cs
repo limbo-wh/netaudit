@@ -16,6 +16,13 @@ public sealed class GpuInfo
     /// <summary>Системная память, которую карта может занять под себя.</summary>
     public long SharedSystemMemory { get; init; }
 
+    /// <summary>
+    /// Локально уникальный идентификатор адаптера (LUID) из DXGI. Нужен там, где
+    /// адаптер надо выбрать повторно и попасть ровно в тот же: на машине с двумя
+    /// видеокартами имя и идентификатор устройства могут совпадать, LUID — нет.
+    /// </summary>
+    public long AdapterLuid { get; init; }
+
     public string FeatureLevel { get; init; } = "";
 
     /// <summary>Поддержка половинной точности в шейдерах — важна для нейросетей.</summary>

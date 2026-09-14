@@ -70,8 +70,21 @@ public sealed class RamInfo
 
     public string TypeName => Modules.Count > 0 ? Modules[0].TypeName : "";
 
-    /// <summary>Рабочая частота, МТ/с: берём по самому медленному модулю — так работает контроллер.</summary>
-    public int ConfiguredMts => Modules.Count == 0 ? 0 : Modules.Min(m => m.ConfiguredMts);
+    /// <summary>
+    /// Рабочая частота, МТ/с: берём по самому медленному модулю — так работает контроллер.
+    ///
+    /// Нули в расчёт не идут. BIOS сообщает скорость не для каждой планки, и один
+    /// такой пропуск обнулял минимум по всем: частота памяти пропадала из отчёта,
+    /// а вместе с ней и теоретический предел пропускной способности.
+    /// </summary>
+    public int ConfiguredMts
+    {
+        get
+        {
+            var known = Modules.Where(m => m.ConfiguredMts > 0).Select(m => m.ConfiguredMts);
+            return known.Any() ? known.Min() : 0;
+        }
+    }
 
     /// <summary>
     /// Сколько разных каналов задействовано. Ноль означает не «нет каналов», а

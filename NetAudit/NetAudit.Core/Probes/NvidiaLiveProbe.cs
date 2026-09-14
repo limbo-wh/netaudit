@@ -44,12 +44,12 @@ public sealed class NvidiaLiveProbe : IDisposable
     private readonly object _lock = new();
     private Process? _process;
     private Thread? _reader;
+    private Thread? _errorReader;
     private NvidiaLiveSample _last = NvidiaLiveSample.Empty;
     private bool _disposed;
 
     /// <summary>Есть ли на машине nvidia-smi. Проверка дешёвая, без запуска.</summary>
-    public static bool IsPresent =>
-        File.Exists(Path.Combine(Environment.SystemDirectory, "nvidia-smi.exe"));
+    public static bool IsPresent => GpuInfoProbe.FindNvidiaSmi() is not null;
 
     /// <summary>Последние полученные показания. До первой строки — пусто.</summary>
     public NvidiaLiveSample Last
@@ -65,8 +65,10 @@ public sealed class NvidiaLiveProbe : IDisposable
             if (_process is not null || _disposed) return _process is not null;
         }
 
-        string exe = Path.Combine(Environment.SystemDirectory, "nvidia-smi.exe");
-        if (!File.Exists(exe)) return false;
+        // Путь ищется общей проверкой: на драйверах до 2019 года утилиты в System32
+        // нет, она лежит в каталоге NVSMI в Program Files
+        string? exe = GpuInfoProbe.FindNvidiaSmi();
+        if (exe is null) return false;
 
         try
         {
@@ -88,13 +90,25 @@ public sealed class NvidiaLiveProbe : IDisposable
                 IsBackground = true,
             };
 
+            // Отдельный поток на stderr. Процесс живёт часами, и предупреждения он
+            // пишет именно туда: как только буфер канала переполнится, nvidia-smi
+            // встанет на записи и перестанет печатать показания — окно нагрузки
+            // замрёт на последнем значении без единой ошибки
+            var errorReader = new Thread(() => DrainErrors(process))
+            {
+                Name = "NetAudit-nvidia-smi-err",
+                IsBackground = true,
+            };
+
             lock (_lock)
             {
                 _process = process;
                 _reader = reader;
+                _errorReader = errorReader;
             }
 
             reader.Start();
+            errorReader.Start();
             return true;
         }
         catch
@@ -116,6 +130,19 @@ public sealed class NvidiaLiveProbe : IDisposable
         catch
         {
             // Процесс убит при закрытии окна — это штатное завершение чтения
+        }
+    }
+
+    /// <summary>Вычитывает и выбрасывает поток ошибок: важен сам факт чтения.</summary>
+    private static void DrainErrors(Process process)
+    {
+        try
+        {
+            while (process.StandardError.ReadLine() is not null) { }
+        }
+        catch
+        {
+            // То же самое: закрытие канала при завершении процесса — не ошибка
         }
     }
 
@@ -149,6 +176,7 @@ public sealed class NvidiaLiveProbe : IDisposable
     {
         Process? process;
         Thread? reader;
+        Thread? errorReader;
 
         lock (_lock)
         {
@@ -156,12 +184,15 @@ public sealed class NvidiaLiveProbe : IDisposable
             _disposed = true;
             process = _process;
             reader = _reader;
+            errorReader = _errorReader;
             _process = null;
             _reader = null;
+            _errorReader = null;
         }
 
         try { if (process is { HasExited: false }) process.Kill(); } catch { }
         try { reader?.Join(TimeSpan.FromSeconds(1)); } catch { }
+        try { errorReader?.Join(TimeSpan.FromSeconds(1)); } catch { }
         try { process?.Dispose(); } catch { }
     }
 }

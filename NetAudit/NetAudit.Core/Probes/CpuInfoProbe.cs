@@ -52,7 +52,11 @@ public static class CpuInfoProbe
             Model                = model,
             Stepping             = stepping,
             Microcode            = microcode,
-            PhysicalCores        = physical > 0 ? physical : Environment.ProcessorCount,
+            // Ноль означает «не определено» и так и остаётся нулём. Прежняя подстановка
+            // числа логических процессоров превращала неудачный опрос в утверждение
+            // «физических ядер столько же, сколько потоков», и на обычном Ryzen
+            // с включённым SMT отчёт сообщал, что многопоточность выключена
+            PhysicalCores        = physical,
             LogicalCores         = Environment.ProcessorCount,
             PerformanceCores     = eff > 0 ? perf : 0,
             EfficiencyCores      = eff,
@@ -74,6 +78,12 @@ public static class CpuInfoProbe
     {
         double load = 0, performance = 0, frequency = 0;
 
+        // Счётчики производительности Windows умеют разваливаться (повреждённый реестр
+        // счётчиков, отключённая служба). Раньше это давало те же нули, что и полный
+        // простой машины, и в отчёте появлялась «частота 0 МГц» без единого намёка,
+        // что значение просто не получено. Поэтому отдельно храним факт «строка пришла»
+        bool countersRead = false;
+
         try
         {
             // Класс счётчиков «Processor Information» точнее старого «Processor»: он знает
@@ -87,6 +97,7 @@ public static class CpuInfoProbe
                 performance = ToDouble(o["PercentProcessorPerformance"]);
                 load        = ToDouble(o["PercentProcessorUtility"]);
                 frequency   = ToDouble(o["ProcessorFrequency"]);
+                countersRead = true;
                 break;
             }
         }
@@ -109,7 +120,12 @@ public static class CpuInfoProbe
         {
             LoadPercent        = load,
             PerformancePercent = performance,
-            CurrentMhz         = frequency > 0 && performance > 0 ? frequency * performance / 100.0 : frequency,
+            // Частота без счётчиков — не ноль, а «неизвестно»: NaN не проходит ни одну
+            // проверку «> 0», и строка о частоте просто не появляется в отчёте
+            CurrentMhz         = !countersRead ? double.NaN
+                               : frequency > 0 && performance > 0 ? frequency * performance / 100.0
+                               : frequency,
+            CountersAvailable  = countersRead,
             PowerScheme        = ReadPowerScheme(),
             ProcessCount       = processes,
             ThreadCount        = threads,
@@ -350,7 +366,17 @@ public static class CpuInfoProbe
         return false;
     }
 
-    private static bool ReadVbs()
+    /// <summary>
+    /// Включена ли защита на основе виртуализации. Три исхода, а не два:
+    /// <c>null</c> — узнать не удалось.
+    ///
+    /// Пространство имён DeviceGuard в WMI открывается только администратору, и
+    /// прежний <c>catch { } return false</c> у обычного пользователя означал
+    /// «защита выключена» — то есть отчёт уверенно врал ровно там, где VBS чаще
+    /// всего и включена. Поэтому при отказе WMI пробуем реестр: ветка
+    /// <c>Control\DeviceGuard</c> читается без прав администратора.
+    /// </summary>
+    private static bool? ReadVbs()
     {
         try
         {
@@ -362,7 +388,21 @@ public static class CpuInfoProbe
                 return Convert.ToInt32(o["VirtualizationBasedSecurityStatus"]) == 2;   // 2 — работает
         }
         catch { }
-        return false;
+
+        // Реестр говорит о заданной настройке, а не о том, что VBS действительно
+        // поднялась (для этого нужны ещё и возможности железа), но это неизмеримо
+        // ближе к правде, чем безусловное «выключена»
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(
+                @"SYSTEM\CurrentControlSet\Control\DeviceGuard");
+
+            if (key?.GetValue("EnableVirtualizationBasedSecurity") is int enabled)
+                return enabled != 0;
+        }
+        catch { }
+
+        return null;
     }
 
     private static string ReadSocket()

@@ -110,6 +110,20 @@ public static class RamInfoProbe
         return GlobalMemoryStatusEx(ref mem) ? (long)mem.ullAvailPhys : 0;
     }
 
+    /// <summary>Сколько физической памяти всего, по данным Windows.</summary>
+    public static long TotalPhysicalBytes()
+    {
+        var mem = new MemoryStatusEx { dwLength = (uint)Marshal.SizeOf<MemoryStatusEx>() };
+        return GlobalMemoryStatusEx(ref mem) ? (long)mem.ullTotalPhys : 0;
+    }
+
+    /// <summary>
+    /// Расшифровка кода типа памяти для тех, кто читает те же коды из WMI.
+    /// Таблица одна на всех: две копии с разными кодами уже приводили к тому,
+    /// что у ноутбучной памяти LPDDR тип оставался пустым.
+    /// </summary>
+    public static string MemoryTypeNameFor(byte code) => MemoryTypeName(code);
+
     public static Task<RamUsage> SampleUsageAsync() => Task.Run(SampleUsage);
 
     public static RamUsage SampleUsage()
@@ -359,7 +373,8 @@ public static class RamInfoProbe
     /// </summary>
     private static string EmptySlotName(byte[] b, int pos, int length, List<string> strings)
     {
-        if (length < 0x12) return "";
+        // 0x12 — минимум, при котором обозначения слота и банка вообще есть в записи
+        if (length < 0x12 || pos + length > b.Length) return "";
 
         string locator = Str(strings, b[pos + 0x10]);
         string bank    = Str(strings, b[pos + 0x11]);
@@ -369,16 +384,30 @@ public static class RamInfoProbe
         return channel.Length > 0 ? $"{locator} (канал {channel})" : locator;
     }
 
+    /// <summary>
+    /// Разбор записи Type 17. Каждое поле проверяется по длине записи отдельно.
+    ///
+    /// Записи разной длины — не редкость, а норма: в SMBIOS 2.1 Type 17 занимает
+    /// ровно 0x15 байт, и всё, что дальше, добавлено более поздними версиями. Общая
+    /// проверка «длина не меньше 0x15» пропускала чтение скорости (0x15–0x16) и
+    /// производителя (0x17) за пределы описания — в скорость попадали байты из блока
+    /// строк, и в отчёте появлялось «34953 МТ/с», а на записи в конце буфера разбор
+    /// падал целиком и память «не определялась» вовсе.
+    /// </summary>
     private static RamModule? ParseDevice(byte[] b, int pos, int length, List<string> strings)
     {
-        if (length < 0x15) return null;
+        // Минимум по стандарту, плюс запись обязана целиком лежать в буфере
+        if (length < 0x15 || pos + length > b.Length) return null;
+
+        // Поле целиком внутри описания записи, а не в блоке строк за ним
+        bool Has(int offset, int size) => offset + size <= length;
 
         // Размер: 0 — слот пуст, 0x7FFF — не влезло в два байта, читать расширенное поле
         ushort sizeRaw = BitConverter.ToUInt16(b, pos + 0x0C);
         if (sizeRaw == 0) return null;
 
         long capacity;
-        if (sizeRaw == 0x7FFF && length >= 0x20)
+        if (sizeRaw == 0x7FFF && Has(0x1C, 4))
         {
             uint ext = BitConverter.ToUInt32(b, pos + 0x1C) & 0x7FFF_FFFF;
             capacity = (long)ext * 1024 * 1024;
@@ -394,24 +423,27 @@ public static class RamInfoProbe
         string locator = Str(strings, b[pos + 0x10]);
         string bank    = Str(strings, b[pos + 0x11]);
 
-        int speed = BitConverter.ToUInt16(b, pos + 0x15);
-        if (speed == 0xFFFF && length >= 0x58 + 4) speed = (int)BitConverter.ToUInt32(b, pos + 0x54);
+        // Скорость — два байта по 0x15, то есть требуется длина не меньше 0x17
+        int speed = Has(0x15, 2) ? BitConverter.ToUInt16(b, pos + 0x15) : 0;
+        if (speed == 0xFFFF && Has(0x54, 4)) speed = (int)BitConverter.ToUInt32(b, pos + 0x54);
+        if (speed == 0xFFFF) speed = 0;
 
-        int configured = length >= 0x22 ? BitConverter.ToUInt16(b, pos + 0x20) : 0;
-        if (configured == 0xFFFF && length >= 0x5C) configured = (int)BitConverter.ToUInt32(b, pos + 0x58);
+        int configured = Has(0x20, 2) ? BitConverter.ToUInt16(b, pos + 0x20) : 0;
+        if (configured == 0xFFFF && Has(0x58, 4)) configured = (int)BitConverter.ToUInt32(b, pos + 0x58);
+        if (configured == 0xFFFF) configured = 0;
         if (configured == 0) configured = speed;
 
-        int ranks = length >= 0x1C ? b[pos + 0x1B] & 0x0F : 0;
-        int voltage = length >= 0x28 ? BitConverter.ToUInt16(b, pos + 0x26) : 0;
+        int ranks = Has(0x1B, 1) ? b[pos + 0x1B] & 0x0F : 0;
+        int voltage = Has(0x26, 2) ? BitConverter.ToUInt16(b, pos + 0x26) : 0;
 
         return new RamModule
         {
             Slot           = locator,
             Bank           = bank,
             Channel        = GuessChannel(bank, locator),
-            Manufacturer   = CleanVendor(Str(strings, b[pos + 0x17])),
-            SerialNumber   = length >= 0x19 ? Str(strings, b[pos + 0x18]) : "",
-            PartNumber     = length >= 0x1B ? Str(strings, b[pos + 0x1A]).Trim() : "",
+            Manufacturer   = Has(0x17, 1) ? CleanVendor(Str(strings, b[pos + 0x17])) : "",
+            SerialNumber   = Has(0x18, 1) ? Str(strings, b[pos + 0x18]) : "",
+            PartNumber     = Has(0x1A, 1) ? Str(strings, b[pos + 0x1A]).Trim() : "",
             CapacityBytes  = capacity,
             SpeedMts       = speed,
             ConfiguredMts  = configured,
@@ -428,9 +460,17 @@ public static class RamInfoProbe
     /// Канал по названию банка. BIOS называет их по-разному («P0 CHANNEL A»,
     /// «BANK 0», «ChannelA-DIMM1»), поэтому ищем букву после слова «channel»,
     /// а если его нет — последнюю букву A–D в обозначении слота.
+    ///
+    /// К букве добавляется номер контроллера, если он назван. На платах, где слоты
+    /// зовутся «Controller0-ChannelA-DIMM0» и «Controller1-ChannelA-DIMM0», обе планки
+    /// давали канал «A», двухканальный режим считался одноканальным, а теоретический
+    /// предел пропускной способности выходил вдвое ниже настоящего — и замер потом
+    /// показывал «достигнуто 190% от предела».
     /// </summary>
     private static string GuessChannel(string bank, string locator)
     {
+        string controller = FindController(bank, locator);
+
         foreach (string source in new[] { bank, locator })
         {
             if (source.Length == 0) continue;
@@ -441,8 +481,8 @@ public static class RamInfoProbe
                 for (int i = idx + 7; i < source.Length; i++)
                 {
                     char c = char.ToUpperInvariant(source[i]);
-                    if (c is >= 'A' and <= 'D') return c.ToString();
-                    if (char.IsDigit(c)) return c.ToString();
+                    if (c is >= 'A' and <= 'D') return c + controller;
+                    if (char.IsDigit(c)) return c + controller;
                 }
             }
         }
@@ -455,8 +495,29 @@ public static class RamInfoProbe
                 if (source[i - 1] is '_' or '-')
                 {
                     char c = char.ToUpperInvariant(source[i]);
-                    if (c is >= 'A' and <= 'D') return c.ToString();
+                    if (c is >= 'A' and <= 'D') return c + controller;
                 }
+            }
+        }
+
+        return "";
+    }
+
+    /// <summary>
+    /// Номер контроллера памяти из названия слота, если он там назван, — иначе пусто.
+    /// Возвращается уже готовым суффиксом к букве канала: «A» и «A1» — разные каналы.
+    /// </summary>
+    private static string FindController(string bank, string locator)
+    {
+        foreach (string source in new[] { locator, bank })
+        {
+            int idx = source.IndexOf("controller", StringComparison.OrdinalIgnoreCase);
+            if (idx < 0) continue;
+
+            for (int i = idx + 10; i < source.Length; i++)
+            {
+                if (char.IsDigit(source[i])) return source[i].ToString();
+                if (char.IsLetter(source[i])) break;   // это уже следующее слово
             }
         }
 
@@ -480,6 +541,8 @@ public static class RamInfoProbe
     /// </summary>
     private static string MemoryTypeName(byte code) => code switch
     {
+        0x0F => "SDRAM",
+        0x11 => "DDR-совместимая",
         0x12 => "DDR",
         0x13 => "DDR2",
         0x18 => "DDR3",

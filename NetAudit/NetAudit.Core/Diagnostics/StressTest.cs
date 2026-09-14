@@ -237,9 +237,26 @@ public sealed class StressTest(
         return !a.AsSpan().SequenceEqual(b);
     }
 
-    private static Thread StartWorker(string name, Action body)
+    /// <summary>
+    /// Причины, по которым подсистема отвалилась посреди теста. Пусто — все дошли до конца.
+    /// </summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _workerFailures = new();
+
+    private Thread StartWorker(string name, Action body)
     {
-        var t = new Thread(() => { try { body(); } catch (OperationCanceledException) { } })
+        var t = new Thread(() =>
+        {
+            try { body(); }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                // Раньше сюда не долетало ничего, кроме отмены, и любое исключение из
+                // рабочего потока (срыв видеодрайвера даёт SharpGenException из Map)
+                // роняло всё приложение посреди часового прогона. Теперь подсистема
+                // просто помечается отвалившейся, а остальные продолжают работать
+                _workerFailures[name] = ex.Message;
+            }
+        })
         {
             Name = $"NetAudit-stress-{name}",
             IsBackground = true,
@@ -619,6 +636,15 @@ public sealed class StressTest(
             var (_, usedGb, totalGb) = probe.Sample();
             double freeGb = totalGb - usedGb;
 
+            // Нулевой ответ — это не «памяти нет», а «спросить не удалось». Раньше
+            // проверка памяти в таком случае молча пропускалась с сообщением
+            // «свободной памяти слишком мало», хотя памяти было полно
+            if (freeGb <= 0.5)
+            {
+                long fromWindows = Probes.RamInfoProbe.AvailablePhysicalBytes();
+                if (fromWindows > 0) freeGb = fromWindows / 1024.0 / 1024 / 1024;
+            }
+
             long byFree = (long)(freeGb * options.MemoryFraction * 1024 * 1024 * 1024);
             long cap = 8L * 1024 * 1024 * 1024;
 
@@ -738,8 +764,8 @@ public sealed class StressTest(
             log.Report(TestLine.Info(Fmt.Row("Температура CPU, макс.", $"{stats.MaxCpuTempC:F0} °C")));
             log.Report(TestLine.Info(Fmt.Row("Температура CPU, средн.", $"{stats.AvgCpuTempC:F0} °C")));
 
-            var cpuLevel = stats.MaxCpuTempC >= 90 ? TestLevel.Bad
-                         : stats.MaxCpuTempC >= 80 ? TestLevel.Warn
+            var cpuLevel = stats.MaxCpuTempC >= ThermalLimits.CpuWarnC ? TestLevel.Warn
+                         : stats.MaxCpuTempC >= ThermalLimits.CpuComfortableC ? TestLevel.Info
                          : TestLevel.Good;
             log.Report(new TestLine($"   {DescribeCpuTemp(stats.MaxCpuTempC)}", cpuLevel));
 
@@ -747,7 +773,7 @@ public sealed class StressTest(
             {
                 log.Report(TestLine.Info(Fmt.Row("Температура GPU, макс.", $"{stats.MaxGpuTempC:F0} °C")));
                 var gpuLevel = stats.MaxGpuTempC >= 87 ? TestLevel.Bad
-                             : stats.MaxGpuTempC >= 80 ? TestLevel.Warn
+                             : stats.MaxGpuTempC >= ThermalLimits.GpuComfortableC ? TestLevel.Info
                              : TestLevel.Good;
                 log.Report(new TestLine($"   {DescribeGpuTemp(stats.MaxGpuTempC)}", gpuLevel));
             }
@@ -778,6 +804,14 @@ public sealed class StressTest(
         // ── Ошибки ────────────────────────────────────────────────────────
         log.Report(TestLine.Empty);
         log.Report(TestLine.Head("Ошибки"));
+
+        // Подсистема, вылетевшая посреди теста, — это не «ноль ошибок», а отсутствие
+        // проверки вовсе. Молчать об этом нельзя: отчёт выглядел бы как успешный
+        foreach (var (name, reason) in _workerFailures)
+        {
+            log.Report(TestLine.Bad(Fmt.Row($"Отвалилась нагрузка «{name}»", reason)));
+            log.Report(TestLine.Dim("   Эта часть теста дальше не проверялась — считайте её непройденной."));
+        }
 
         if (options.Cpu)
         {
@@ -889,18 +923,22 @@ public sealed class StressTest(
 
     private static string DescribeCpuTemp(double t) => t switch
     {
-        >= 95 => "Критично: на грани отключения по защите.",
-        >= 90 => "Очень высоко. Под длительной нагрузкой так быть не должно.",
-        >= 80 => "Высоковато. Для настольного компьютера повод посмотреть кулер и термопасту.",
+        >= ThermalLimits.CpuStopC => "На пределе: дальше срабатывает защита самого процессора.",
+        >= ThermalLimits.CpuWarnC  => "Горячо. Если частота при этом падает — посмотрите кулер "
+                                    + "и термопасту. " + ThermalLimits.ModernHardwareNote,
+        >= ThermalLimits.CpuComfortableC => "Тепло, но в пределах рабочего режима.",
         >= 70 => "В норме под полной нагрузкой.",
         _     => "Отлично, охлаждение с запасом.",
     };
 
     private static string DescribeGpuTemp(double t) => t switch
     {
-        >= 90 => "Критично, видеокарта на пределе.",
-        >= 84 => "Высоко: пора чистить от пыли и проверять обороты вентиляторов.",
-        >= 75 => "В норме для нагруженной видеокарты.",
+        >= ThermalLimits.GpuStopC => "Критично, видеокарта на пределе.",
+        >= ThermalLimits.GpuWarnC => "Высоко. У карт, показывающих температуру горячей точки "
+                                   + "(многие Radeon и RTX 30 с памятью GDDR6X), это рабочий режим; "
+                                   + "у остальных — повод почистить от пыли.",
+        >= ThermalLimits.GpuComfortableC => "Тепло, в пределах нормы для нагрузки.",
+        >= 70 => "В норме для нагруженной видеокарты.",
         _     => "Холодная — либо отличное охлаждение, либо она сейчас не нагружена.",
     };
 }
