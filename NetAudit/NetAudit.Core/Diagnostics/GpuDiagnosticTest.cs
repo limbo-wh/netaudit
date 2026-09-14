@@ -459,6 +459,9 @@ public sealed class GpuDiagnosticTest(GpuDiagnosticParts parts = GpuDiagnosticPa
         if ((mask & NvidiaLiveSample.ReasonHardwareSlowdown) != 0)   parts.Add("аппаратное замедление");
         if ((mask & NvidiaLiveSample.ReasonApplicationsClocks) != 0) parts.Add("заданные частоты приложения");
         if ((mask & NvidiaLiveSample.ReasonSyncBoost) != 0)          parts.Add("синхронный буст");
+        if ((mask & NvidiaLiveSample.ReasonDisplayClockSetting) != 0) parts.Add("частоты под монитор");
+        if ((mask & NvidiaLiveSample.ReasonReliabilityOrBoardLimit) != 0)
+            parts.Add("потолок буста — предел напряжения по надёжности или платы, это норма");
         if ((mask & NvidiaLiveSample.ReasonIdle) != 0)               parts.Add("«простой» — при полной загрузке это режим питания драйвера");
 
         return parts.Count > 0 ? string.Join(", ", parts) : $"неизвестная причина 0x{mask:X}";
