@@ -63,6 +63,12 @@ public partial class GpuLoadWindow : Window
         {
             try { _temp.Initialize(); } catch { }
             try { _gpu.Initialize(); } catch { }
+
+            // Ватты берутся из nvidia-smi, у AMD и Intel такого источника нет.
+            // Раньше плитка просто оставалась пустой, и это выглядело поломкой
+            PowerVal.ToolTip = "Показатель доступен только для видеокарт NVIDIA: " +
+                               "потребление отдаёт nvidia-smi, у карт AMD и Intel " +
+                               "такого источника нет.";
         }
 
         // Дочернее окно создаётся при первом показе — до этого дескриптора нет
@@ -144,6 +150,15 @@ public partial class GpuLoadWindow : Window
         ShowTemperature(temperature);
     }
 
+    /// <summary>
+    /// Порог аварийной остановки нагрузки. Прежние 90 °C обрывали работу почти
+    /// сразу на картах, отдающих температуру горячей точки: у многих Radeon и у
+    /// RTX 30 с памятью GDDR6X 90–100 °C — рабочая норма, а не авария. Какой
+    /// датчик попадёт в показания, решает сама карта, поэтому порог поднят к
+    /// верхней границе безопасного диапазона.
+    /// </summary>
+    private const double StopTemperatureC = 97;
+
     private void ShowTemperature(double gpuTemp)
     {
         if (double.IsNaN(gpuTemp))
@@ -162,10 +177,13 @@ public partial class GpuLoadWindow : Window
 
         // Доводить карту до предела незачем: нагрузка нужна как наблюдение,
         // а не как проверка на выживание
-        if (gpuTemp >= 90 && !_stopped)
+        if (gpuTemp >= StopTemperatureC && !_stopped)
         {
             StopLoad();
-            HintText.Text = $"Остановлено: видеокарта достигла {gpuTemp:F0} °C.";
+            HintText.Text = $"Остановлено: датчик видеокарты показал {gpuTemp:F0} °C " +
+                            $"(порог {StopTemperatureC:F0} °C). Какой это датчик — ядро или " +
+                            "горячая точка — зависит от модели карты, поэтому нормальные " +
+                            "значения у разных карт разные.";
             HintText.Foreground = new SolidColorBrush(Color.FromRgb(0xEE, 0x8B, 0x8B));
         }
     }

@@ -82,6 +82,15 @@ public partial class SettingsWindow : Window
         _loading = false;
     }
 
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+        // Окно не тянется (ResizeMode="NoResize"), а высота 720 не влезает
+        // на экран ноутбука 1366×768 — кнопки внизу оказывались под панелью
+        // задач. Содержимое лежит в ScrollViewer, так что укоротить его можно
+        App.FitToScreen(this);
+    }
+
     // ── Заполнение контролов ──────────────────────────────────────────────
 
     private void LoadFromSettings()
@@ -113,11 +122,21 @@ public partial class SettingsWindow : Window
         }
         if (CmbFontSize.SelectedItem is null) CmbFontSize.SelectedIndex = 1;
 
-        // Позиция оверлея
-        SliderOverlayX.Maximum = SystemParameters.PrimaryScreenWidth  - 200;
-        SliderOverlayY.Maximum = SystemParameters.PrimaryScreenHeight - 200;
-        SliderOverlayX.Value   = Math.Clamp(_settings.OverlayLeft, 0, SliderOverlayX.Maximum);
-        SliderOverlayY.Value   = Math.Clamp(_settings.OverlayTop,  0, SliderOverlayY.Maximum);
+        // Позиция оверлея. Пределы — по виртуальному экрану, прямоугольнику всех
+        // мониторов: с основным монитором в пределах простое открытие окна настроек
+        // молча урезало сохранённую позицию и утаскивало оверлей со второго экрана
+        // на основной. Слева и сверху виртуальный экран уходит в минус, если монитор
+        // стоит левее или выше основного, поэтому Minimum тоже задаём здесь
+        const double keepVisible = 200;   // столько оверлея всегда остаётся на экране
+        double vLeft = SystemParameters.VirtualScreenLeft;
+        double vTop  = SystemParameters.VirtualScreenTop;
+
+        SliderOverlayX.Minimum = vLeft;
+        SliderOverlayY.Minimum = vTop;
+        SliderOverlayX.Maximum = Math.Max(vLeft, vLeft + SystemParameters.VirtualScreenWidth  - keepVisible);
+        SliderOverlayY.Maximum = Math.Max(vTop,  vTop  + SystemParameters.VirtualScreenHeight - keepVisible);
+        SliderOverlayX.Value   = Math.Clamp(_settings.OverlayLeft, SliderOverlayX.Minimum, SliderOverlayX.Maximum);
+        SliderOverlayY.Value   = Math.Clamp(_settings.OverlayTop,  SliderOverlayY.Minimum, SliderOverlayY.Maximum);
         OverlayXLabel.Text     = $"{SliderOverlayX.Value:F0} пкс";
         OverlayYLabel.Text     = $"{SliderOverlayY.Value:F0} пкс";
 

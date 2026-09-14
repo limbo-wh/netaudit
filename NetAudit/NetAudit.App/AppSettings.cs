@@ -131,6 +131,13 @@ public sealed class AppSettings
         LogEnabled = s.LogEnabled;
         LogOnlyImportant = s.LogOnlyImportant;
 
+        // Эти три отката не хватало: «Вернуть как было» оставляло включённым
+        // автоповышение прав и считало уже показанными предложения, которых
+        // в снимке ещё не было.
+        AutoElevate      = s.AutoElevate;
+        ElevationOffered = s.ElevationOffered;
+        ShortcutOffered  = s.ShortcutOffered;
+
         ShowGatewayGraph = s.ShowGatewayGraph;
         ShowCloudflareGraph = s.ShowCloudflareGraph;
         ShowNetworkGraph = s.ShowNetworkGraph;
@@ -159,13 +166,15 @@ public sealed class AppSettings
         OvShowCfPing = s.OvShowCfPing;
         OvShowGwLoss = s.OvShowGwLoss;
         OvShowCfLoss = s.OvShowCfLoss;
-        OverlayMetricOrder = [.. s.OverlayMetricOrder];
+        // Списки копируем через ?? — снимок мог быть снят с настроек, прочитанных
+        // из файла с null в этих полях.
+        OverlayMetricOrder = [.. s.OverlayMetricOrder ?? OverlayMetrics.DefaultOrder()];
 
         GameModeEnabled           = s.GameModeEnabled;
         GameModeLowerPriority     = s.GameModeLowerPriority;
         GameModeSlowMetrics       = s.GameModeSlowMetrics;
         GameModeQuietLog          = s.GameModeQuietLog;
-        GameModeExcludedProcesses = [.. s.GameModeExcludedProcesses];
+        GameModeExcludedProcesses = [.. s.GameModeExcludedProcesses ?? []];
         GameModeLossAlerts        = s.GameModeLossAlerts;
 
         GameBoostPowerPlan     = s.GameBoostPowerPlan;
@@ -173,7 +182,7 @@ public sealed class AppSettings
         GameBoostVisualEffects = s.GameBoostVisualEffects;
         GameBoostStopServices  = s.GameBoostStopServices;
         GameBoostGamePriority  = s.GameBoostGamePriority;
-        GameBoostCloseApps     = [.. s.GameBoostCloseApps];
+        GameBoostCloseApps     = [.. s.GameBoostCloseApps ?? []];
 
         HotkeyOverlayVk = s.HotkeyOverlayVk;
         HotkeyBoostVk   = s.HotkeyBoostVk;
@@ -196,11 +205,30 @@ public sealed class AppSettings
             if (File.Exists(FilePath))
             {
                 var json = File.ReadAllText(FilePath);
-                return JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+                var loaded = JsonSerializer.Deserialize<AppSettings>(json);
+                if (loaded is not null)
+                {
+                    loaded.EnsureLists();
+                    return loaded;
+                }
             }
         }
         catch { }
         return new AppSettings();
+    }
+
+    /// <summary>
+    /// Значения по умолчанию у списков задаются при объявлении, но десериализатор
+    /// их перетирает: строка вида "GameModeExcludedProcesses": null в файле кладёт
+    /// в поле именно null. Дальше foreach по такому списку роняет приложение ещё
+    /// до появления окна (SetupGameBoost вызывается из конструктора MainWindow),
+    /// и снаружи это выглядит как «программа вообще не запускается».
+    /// </summary>
+    private void EnsureLists()
+    {
+        OverlayMetricOrder        ??= OverlayMetrics.DefaultOrder();
+        GameModeExcludedProcesses ??= [];
+        GameBoostCloseApps        ??= [];
     }
 
     public void Save()

@@ -17,6 +17,19 @@ public sealed class TemperatureProbe : IDisposable
 
     public bool Available => _available;
 
+    /// <summary>
+    /// Почему датчики недоступны — человеческим языком. Пусто, если всё в порядке.
+    ///
+    /// Нужно, чтобы не сваливать все причины в одно «нужны права администратора».
+    /// На этой машине программа работает с правами администратора, а датчиков всё
+    /// равно нет: Windows отказывается запускать драйвер чтения (WinRing0) —
+    /// «файл содержит вирус или потенциально нежелательное ПО». Этот драйвер входит
+    /// в список уязвимых драйверов Microsoft и блокируется, когда включена защита
+    /// от них (по умолчанию она включена). Пользователю важно понимать, что это
+    /// не поломка железа и не сбой программы.
+    /// </summary>
+    public string Unavailable { get; private set; } = "";
+
     public void Initialize()
     {
         if (_initialized) return;
@@ -24,19 +37,70 @@ public sealed class TemperatureProbe : IDisposable
 
         // Без прав администратора Computer.Open() либо бросит, либо тихо не найдёт
         // ни одного датчика — не пытаемся, чтобы не платить временем на инициализацию впустую
-        if (!FpsProbe.IsElevated) return;
+        if (!FpsProbe.IsElevated)
+        {
+            Unavailable = "нужны права администратора";
+            return;
+        }
 
         try
         {
             _computer = new Computer { IsCpuEnabled = true, IsGpuEnabled = true };
             _computer.Open();
-            _available = true;
+
+            // Драйвер мог не запуститься — тогда библиотека поднимется, но датчиков
+            // температуры не найдёт ни одного. Отличаем это от настоящей работы
+            _available = HasAnyTemperature(_computer);
+
+            if (!_available)
+            {
+                Unavailable = DriverBlocked()
+                    ? "Windows заблокировала драйвер чтения датчиков как уязвимый"
+                    : "датчики температуры не найдены";
+
+                try { _computer.Close(); } catch { }
+                _computer = null;
+            }
         }
         catch
         {
             _computer = null;
             _available = false;
+            Unavailable = "драйвер чтения датчиков не запустился";
         }
+    }
+
+    private static bool HasAnyTemperature(Computer computer)
+    {
+        try
+        {
+            foreach (var hw in computer.Hardware)
+            {
+                hw.Update();
+                foreach (var sensor in hw.Sensors)
+                    if (sensor.SensorType == SensorType.Temperature && sensor.Value is not null)
+                        return true;
+            }
+        }
+        catch { }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Включена ли в Windows защита от уязвимых драйверов. Именно она не даёт
+    /// запуститься WinRing0, которым пользуется библиотека чтения датчиков.
+    /// </summary>
+    private static bool DriverBlocked()
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(
+                @"SYSTEM\CurrentControlSet\Control\CI\Config");
+
+            return key?.GetValue("VulnerableDriverBlocklistEnable") is int v && v != 0;
+        }
+        catch { return false; }
     }
 
     public (double CpuTempC, double GpuTempC) Sample()

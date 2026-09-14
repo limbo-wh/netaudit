@@ -457,13 +457,26 @@ public partial class MainWindow
             await _scheduler.DisposeAsync();
         }
 
+        // Пустой адрес означает «шлюз не нашёлся»: подписку на пробу до него
+        // не заводим, иначе график покажет ровные 100% потерь на исправном интернете
+        _gatewayKnown = gateway.Length > 0;
+
         _scheduler = new NetAudit.Core.Scheduler.ProbeScheduler(gateway, TimeSpan.FromMilliseconds(250));
-        _scheduler.GatewayResult    += OnGatewayResult;
+        if (_gatewayKnown) _scheduler.GatewayResult += OnGatewayResult;
         _scheduler.CloudflareResult += OnCloudflareResult;
         _scheduler.Start();
 
-        GatewayLabel.Text = $"Шлюз: {gateway}";
-        AppendEventLog($"⟳ Шлюз сменился на {gateway}, пробы перезапущены", BrushYellow);
+        if (_gatewayKnown)
+        {
+            GatewayLabel.Text = $"Шлюз: {gateway}";
+            AppendEventLog($"⟳ Шлюз сменился на {gateway}, пробы перезапущены", BrushYellow);
+        }
+        else
+        {
+            GatewayLabel.Text = "Шлюз: не определён";
+            ShowGatewayUnknown();
+            AppendEventLog("⟳ Шлюз не определён — проба до него остановлена", BrushYellow);
+        }
     }
 
     // ── Память ────────────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Media;
 using System.Windows.Threading;
 
 namespace NetAudit.App;
@@ -79,6 +80,70 @@ public partial class App : Application
         catch
         {
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Ужимает окно до рабочей области того монитора, на котором оно открывается.
+    /// Стартовые размеры окон подобраны под большой монитор; на ноутбуке 1366×768
+    /// или при масштабе 150% нижняя часть с вкладками и кнопками уезжала за край
+    /// экрана, а у окон с <c>ResizeMode="NoResize"</c> дотянуться до неё было нечем.
+    /// Вызывать из <c>OnSourceInitialized</c>: раньше окно ещё не знает своего
+    /// монитора, позже пользователь успеет увидеть скачок размера.
+    /// </summary>
+    /// <param name="reserve">Запас на рамку и панель задач, в точках WPF.</param>
+    public static void FitToScreen(Window window, double reserve = 48)
+    {
+        try
+        {
+            var area = WorkAreaFor(window);
+
+            // Нижние границы — чтобы кривые данные о мониторе не схлопнули окно в точку
+            double maxWidth  = Math.Max(360, area.Width  - reserve);
+            double maxHeight = Math.Max(280, area.Height - reserve);
+
+            // Сравнение с NaN всегда ложно — незаданный размер (SizeToContent) не трогаем
+            if (window.Width  > maxWidth)  window.Width  = maxWidth;
+            if (window.Height > maxHeight) window.Height = maxHeight;
+        }
+        catch { }
+    }
+
+    /// <summary>
+    /// Рабочая область монитора окна в точках WPF. WinForms отдаёт границы в
+    /// физических пикселях, поэтому переводим их матрицей источника представления —
+    /// иначе при масштабе 150% «свободные» 768 пикселей превратятся в завышенные
+    /// 768 точек, и вся проверка потеряет смысл.
+    /// </summary>
+    private static Rect WorkAreaFor(Window window)
+    {
+        try
+        {
+            // Окно ещё без источника, если его размер правят до показа —
+            // тогда ориентируемся на владельца, он уже на нужном мониторе
+            Visual? visual = PresentationSource.FromVisual(window) is not null
+                ? window
+                : window.Owner;
+
+            var hwnd = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+            if (hwnd == IntPtr.Zero && window.Owner is { } owner)
+                hwnd = new System.Windows.Interop.WindowInteropHelper(owner).Handle;
+
+            if (hwnd == IntPtr.Zero || visual is null) return SystemParameters.WorkArea;
+
+            var transform = PresentationSource.FromVisual(visual)?.CompositionTarget?.TransformFromDevice;
+            if (transform is not { } m) return SystemParameters.WorkArea;
+
+            var wa = System.Windows.Forms.Screen.FromHandle(hwnd).WorkingArea;
+            var topLeft     = m.Transform(new Point(wa.Left,  wa.Top));
+            var bottomRight = m.Transform(new Point(wa.Right, wa.Bottom));
+            return new Rect(topLeft, bottomRight);
+        }
+        catch
+        {
+            // Основной монитор — разумный запасной вариант: его размеры
+            // SystemParameters отдаёт уже в точках WPF
+            return SystemParameters.WorkArea;
         }
     }
 

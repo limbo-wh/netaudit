@@ -138,7 +138,14 @@ public static class StartupManager
             };
             using var p = Process.Start(psi);
             if (p is null) return false;
-            p.WaitForExit(3000);
+            // Без проверки результата WaitForExit чтение ExitCode у не успевшего
+            // процесса бросает InvalidOperationException; зависший schtasks снимаем
+            // и считаем, что задачи нет — это нормальный случай для портативной копии
+            if (!p.WaitForExit(3000))
+            {
+                try { p.Kill(entireProcessTree: true); } catch { }
+                return false;
+            }
             return p.ExitCode == 0;
         }
         catch { return false; }

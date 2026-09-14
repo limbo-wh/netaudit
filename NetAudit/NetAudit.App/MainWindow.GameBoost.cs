@@ -131,7 +131,9 @@ public partial class MainWindow
             {
                 if (proc.MainWindowHandle == IntPtr.Zero) continue;
                 if (string.IsNullOrWhiteSpace(proc.MainWindowTitle)) continue;
-                if (proc.ProcessName.Equals("NetAudit.App", StringComparison.OrdinalIgnoreCase)) continue;
+                // Себя в список «закрыть при разгоне» не предлагаем; имя берём
+                // у системы — см. OwnProcessName в MainWindow.GameMode.cs
+                if (proc.ProcessName.Equals(OwnProcessName, StringComparison.OrdinalIgnoreCase)) continue;
                 names.Add(proc.ProcessName);
             }
             catch { }

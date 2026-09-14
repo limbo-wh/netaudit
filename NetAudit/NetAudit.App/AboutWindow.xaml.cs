@@ -29,6 +29,14 @@ public partial class AboutWindow : Window
         };
     }
 
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+        // Окно не тянется, а его 700 точек высоты не влезают на экран ноутбука;
+        // содержимое теперь в ScrollViewer, поэтому окно можно безопасно укоротить
+        App.FitToScreen(this);
+    }
+
     private void OnCopyCard(object sender, RoutedEventArgs e)
     {
         try

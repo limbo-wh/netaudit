@@ -38,6 +38,9 @@ public sealed class CpuBenchmarkResult
     public bool HasFma { get; init; }
     public bool HasAes { get; init; }
 
+    /// <summary>Почему температуру не удалось прочитать. Пусто, если удалось.</summary>
+    public string TemperatureProblem { get; init; } = "";
+
     /// <summary>Прирост от всех потоков против одного, в разах.</summary>
     public double MultiThreadGain => SingleThreadMops > 0 ? MultiThreadMops / SingleThreadMops : 0;
 }
@@ -152,6 +155,7 @@ public sealed class CpuBenchmark(int soakSeconds = 15) : IDiagnosticTest
                 TempPeakC          = peakTemp,
                 HasFma             = Fma.IsSupported,
                 HasAes             = Aes.IsSupported,
+                TemperatureProblem = temp.Unavailable,
             };
 
             Report(log, Result);
@@ -322,7 +326,18 @@ public sealed class CpuBenchmark(int soakSeconds = 15) : IDiagnosticTest
         }
         else
         {
-            log.Report(TestLine.Dim("Температура не читается: нужны права администратора."));
+            // Причина бывает разная, и «нужны права администратора» — не единственная:
+            // на машине с включённой защитой от уязвимых драйверов Windows не даёт
+            // запуститься драйверу чтения датчиков даже администратору
+            log.Report(TestLine.Dim($"Температура не читается: {r.TemperatureProblem}."));
+
+            if (r.TemperatureProblem.Contains("уязвим", StringComparison.OrdinalIgnoreCase))
+            {
+                log.Report(TestLine.Dim("   Это защита Windows, а не поломка: библиотека чтения датчиков"));
+                log.Report(TestLine.Dim("   пользуется драйвером WinRing0, который Microsoft внесла в список"));
+                log.Report(TestLine.Dim("   уязвимых. Температуру видеокарты это не затрагивает — её отдаёт"));
+                log.Report(TestLine.Dim("   сама карта."));
+            }
         }
     }
 

@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:sp="clr-namespace:ScottPlot.WPF;assembly=ScottPlot.WPF"
         Title="NetAudit" Height="1000" Width="1000"
+        WindowStartupLocation="CenterScreen"
         Icon="NetAudit.ico"
         Background="#0C1611" Foreground="White"
         Closing="Window_Closing"

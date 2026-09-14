@@ -6,7 +6,12 @@ namespace NetAudit.Core.Scheduler;
 
 public sealed class ProbeScheduler : IAsyncDisposable
 {
-    private readonly IcmpProbe _gatewayProbe;
+    /// <summary>
+    /// Проба шлюза. Ноль, когда шлюз не определился: в сети без шлюза (только VPN,
+    /// мобильный модем, отключённый кабель) прежний планировщик всё равно слал
+    /// пакеты в пустоту и рисовал 100% потерь на исправной машине.
+    /// </summary>
+    private readonly IcmpProbe? _gatewayProbe;
     private readonly IcmpProbe _cloudflareProbe;
     private readonly TimeSpan _interval;
     private readonly PingLogger _logger;
@@ -19,11 +24,14 @@ public sealed class ProbeScheduler : IAsyncDisposable
     public string GatewayAddress { get; }
     public string LogPath { get; }
 
+    /// <summary>Есть ли вообще шлюз, за которым имеет смысл следить.</summary>
+    public bool GatewayKnown => _gatewayProbe is not null;
+
     public ProbeScheduler(string gatewayAddress, TimeSpan interval)
     {
         GatewayAddress = gatewayAddress;
         _interval = interval;
-        _gatewayProbe = new IcmpProbe(gatewayAddress);
+        _gatewayProbe = string.IsNullOrWhiteSpace(gatewayAddress) ? null : new IcmpProbe(gatewayAddress);
         _cloudflareProbe = new IcmpProbe("1.1.1.1");
 
         LogPath = Path.Combine(
@@ -44,6 +52,15 @@ public sealed class ProbeScheduler : IAsyncDisposable
 
         while (await timer.WaitForNextTickAsync(ct))
         {
+            if (_gatewayProbe is null)
+            {
+                // Шлюза нет — следим только за интернетом, а не шлём пакеты в пустоту
+                var internetOnly = await _cloudflareProbe.SendAsync(ct);
+                _logger.Log(internetOnly);
+                CloudflareResult?.Invoke(internetOnly);
+                continue;
+            }
+
             var tasks = await Task.WhenAll(
                 _gatewayProbe.SendAsync(ct),
                 _cloudflareProbe.SendAsync(ct)
