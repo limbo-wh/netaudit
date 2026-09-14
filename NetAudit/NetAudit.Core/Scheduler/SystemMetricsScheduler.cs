@@ -11,6 +11,13 @@ public sealed class SystemMetricsScheduler : IAsyncDisposable
     private readonly GpuProbe                _gpuProbe   = new();
     private readonly FpsProbe                _fpsProbe   = new();
     private readonly TemperatureProbe        _tempProbe  = new();
+
+    // Загрузку карты NVIDIA спрашиваем у самой карты. Счётчик Windows «GPU Engine»
+    // считает долю времени, что планировщик держал пакеты на движке, и на коротких
+    // кадрах систематически занижает: на скриншоте владельца 14.09 оверлей
+    // показывал 68%, а карта под FurMark — 100%. Для карт без nvidia-smi
+    // остаётся счётчик
+    private readonly NvidiaLiveProbe         _nvidia     = new();
     private readonly CancellationTokenSource _cts        = new();
     private Task? _metricsTask;
     private Task? _wifiTask;
@@ -70,6 +77,8 @@ public sealed class SystemMetricsScheduler : IAsyncDisposable
     {
         bool gpuReady = false;
         bool tempReady = false;
+        bool nvidiaReady = false;
+        bool nvidiaLive = false;
         using var timer = new PeriodicTimer(MetricsFast);
         while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
         {
@@ -89,12 +98,30 @@ public sealed class SystemMetricsScheduler : IAsyncDisposable
                     await Task.Run(_tempProbe.Initialize, ct).ConfigureAwait(false);
                     tempReady = true;
                 }
+                if (!nvidiaReady)
+                {
+                    nvidiaLive = await Task.Run(
+                        () => NvidiaLiveProbe.IsPresent && _nvidia.Start(), ct).ConfigureAwait(false);
+                    nvidiaReady = true;
+                }
 
                 var (rx, tx)              = _speedProbe.Sample();
                 var (cpu, ramUsed, total) = _sysProbe.Sample();
                 var (bat, charging, _)    = _sysProbe.GetBattery();
                 float gpu                 = _gpuProbe.Sample();
                 var (cpuTemp, gpuTemp)    = _tempProbe.Sample();
+
+                var nv = nvidiaLive ? _nvidia.Last : NvidiaLiveSample.Empty;
+                if (nv.HasData) gpu = (float)nv.Utilization;
+
+                // Разбивка по датчикам — для строки «ядро/горячая точка» в оверлее.
+                // Без прав администратора датчиков через драйвер нет, но nvidia-smi
+                // отдаёт ядро и так — лучше одна честная цифра, чем прочерк
+                var split = _tempProbe.SampleGpu();
+                double gpuCore = split.CoreC;
+                double gpuHot  = split.HotSpotC;
+                if (double.IsNaN(gpuCore) && !double.IsNaN(nv.TemperatureC)) gpuCore = nv.TemperatureC;
+                if (double.IsNaN(gpuTemp)) gpuTemp = gpuCore;
 
                 // Кадры считаем у процесса на переднем плане — им и является игра
                 double fps = _fpsProbe.Available
@@ -103,7 +130,7 @@ public sealed class SystemMetricsScheduler : IAsyncDisposable
 
                 SnapshotReady?.Invoke(new SystemSnapshot(
                     rx, tx, cpu, gpu, ramUsed, total, bat, charging, DateTimeOffset.UtcNow,
-                    fps, cpuTemp, gpuTemp));
+                    fps, cpuTemp, gpuTemp, gpuCore, gpuHot));
             }
             catch { }
         }
@@ -131,6 +158,7 @@ public sealed class SystemMetricsScheduler : IAsyncDisposable
         _gpuProbe.Dispose();
         _fpsProbe.Dispose();
         _tempProbe.Dispose();
+        _nvidia.Dispose();
         _cts.Dispose();
     }
 }

@@ -206,10 +206,11 @@ public partial class OverlayWindow : Window
         }
     }
 
-    public void Push(float cpu, float gpu, double cpuTemp, double gpuTemp,
+    public void Push(float cpu, float gpu,
+                     double cpuTemp, double gpuTemp, double gpuCore, double gpuHot,
                      double ramUsed, double ramTotal,
                      double rxMBps, double txMBps,
-                     double? gwMs, double? cfMs,
+                     bool gatewayKnown, double? gwMs, double? cfMs,
                      double gwLossPct, double cfLossPct,
                      double fps)
     {
@@ -225,7 +226,7 @@ public partial class OverlayWindow : Window
 
             // Пороги под типичный гейминг-режим: выше — троттлинг уже рядом
             ApplyTemp(OvCpuTemp, cpuTemp, warnAt: 70, badAt: 85);
-            ApplyTemp(OvGpuTemp, gpuTemp, warnAt: 75, badAt: 85);
+            ApplyGpuTemp(gpuTemp, gpuCore, gpuHot);
 
             OvRam.Text = ramTotal > 0 ? $"{ramUsed:F1} / {ramTotal:F1} ГБ" : "—";
             double ramPct = ramTotal > 0 ? ramUsed / ramTotal * 100 : 0;
@@ -236,15 +237,27 @@ public partial class OverlayWindow : Window
 
             // Потери вынесены в отдельные строки — в игре важнее видеть их сразу,
             // а не дописанными в хвост к задержке
-            OvGw.Text       = gwMs.HasValue ? $"{gwMs:F0} мс" : "таймаут";
-            OvGw.Foreground = !gwMs.HasValue  ? BrushRed
-                            : gwMs < 15 ? BrushGreen : gwMs < 40 ? BrushYellow : BrushRed;
+            // Неопределённый шлюз — это не таймаут, пинговать было некого. Красное
+            // «таймаут» на машине без шлюза (VPN-туннель, чужая сеть) пугало зря
+            if (!gatewayKnown)
+            {
+                OvGw.Text           = "—";
+                OvGw.Foreground     = BrushDim;
+                OvGwLoss.Text       = "—";
+                OvGwLoss.Foreground = BrushDim;
+            }
+            else
+            {
+                OvGw.Text       = gwMs.HasValue ? $"{gwMs:F0} мс" : "таймаут";
+                OvGw.Foreground = !gwMs.HasValue  ? BrushRed
+                                : gwMs < 15 ? BrushGreen : gwMs < 40 ? BrushYellow : BrushRed;
+                ApplyLoss(OvGwLoss, gwLossPct);
+            }
 
             OvCf.Text       = cfMs.HasValue ? $"{cfMs:F0} мс" : "таймаут";
             OvCf.Foreground = !cfMs.HasValue  ? BrushRed
                             : cfMs < 30 ? BrushGreen : cfMs < 80 ? BrushYellow : BrushRed;
 
-            ApplyLoss(OvGwLoss, gwLossPct);
             ApplyLoss(OvCfLoss, cfLossPct);
         });
     }
@@ -266,6 +279,31 @@ public partial class OverlayWindow : Window
         OvFps.Text = $"{fps:F0}";
         // Пороги под 60 Гц: ниже 30 играть тяжело, 30–55 заметно дёргается
         OvFps.Foreground = fps >= 55 ? BrushGreen : fps >= 30 ? BrushYellow : BrushRed;
+    }
+
+    /// <summary>
+    /// Температура видеокарты как «ядро/горячая точка». Горячая точка на 10–30 °C
+    /// выше ядра, и именно от неё карта виснет — сторожить надо её. Но чужие
+    /// мониторинги показывают ядро, и одна наша цифра 94 рядом с их 79 выглядела
+    /// ошибкой (скриншот владельца 14.09). Две цифры с подписью снимают вопрос.
+    /// Цвет — по горячей точке с её порогами: 85 предупреждение, 95 плохо.
+    /// Когда горячей точки нет (старые карты, часть AMD) — одна цифра по-старому.
+    /// </summary>
+    private void ApplyGpuTemp(double hottest, double core, double hot)
+    {
+        bool haveCore = !double.IsNaN(core) && core > 0;
+        bool haveHot  = !double.IsNaN(hot)  && hot  > 0;
+
+        if (haveCore && haveHot)
+        {
+            LblGpuTemp.Text      = "GPU ядро/гор.";
+            OvGpuTemp.Text       = $"{core:F0}/{hot:F0}°C";
+            OvGpuTemp.Foreground = hot < 85 ? BrushGreen : hot < 95 ? BrushYellow : BrushRed;
+            return;
+        }
+
+        LblGpuTemp.Text = "Темп. GPU";
+        ApplyTemp(OvGpuTemp, hottest, warnAt: 75, badAt: 85);
     }
 
     /// <summary>
