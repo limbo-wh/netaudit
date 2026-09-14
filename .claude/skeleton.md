@@ -62,6 +62,8 @@ app_lan/                                  ← корень git-репозито�
     │   │   ├── HardwareProbe.cs          WMI, одноразовый сбор
     │   │   ├── GpuInfo.cs                паспорт видеокарты: модель, память, пределы
     │   │   ├── GpuInfoProbe.cs           сбор паспорта: DXGI + D3D11 + nvidia-smi
+    │   │   ├── NvidiaLiveProbe.cs        живые загрузка/мощность/температура/частота
+    │   │   │                             одним долгоживущим nvidia-smi -l 1
     │   │   └── ProcessProbe.cs           список процессов, без ограничения сверху
     │   ├── Diagnostics/                  разовые тесты, вкладка «Тесты и сервис»
     │   │   ├── TestTypes.cs              TestLine, TestLevel, IDiagnosticTest, Fmt
@@ -90,6 +92,8 @@ app_lan/                                  ← корень git-репозито�
     │   │   │                             DirectML — главный замер для нейросетей
     │   │   ├── GpuGameBenchmark.cs       рисование кадров с растеризацией: FPS,
     │   │   │                             худший процент, ровность кадров
+    │   │   ├── GpuVisualLoad.cs          видимая нагрузка: мохнатый бублик трассировкой
+    │   │   │                             лучей в своё окно, как в FurMark
     │   │   ├── CrashReportTest.cs        отчёт о сбоях ПК: журналы, дампы, чёрный ящик
     │   │   ├── WindowsEventQuery.cs      чтение журналов Windows по XPath, без внешних процессов
     │   │   ├── BugCheckCodes.cs          расшифровка кодов синего экрана + подозреваемый
@@ -132,6 +136,8 @@ app_lan/                                  ← корень git-репозито�
     │   ├── OverlayWindow.xaml(.cs)       layered click-through оверлей, строка FPS первой
     │   ├── SettingsWindow.xaml(.cs)      настройки, мгновенное применение + откат
     │   ├── AboutWindow.xaml(.cs)         о программе, поддержка разработки
+    │   ├── GpuLoadWindow.xaml(.cs)       видимая нагрузка видеокарты: картинка в своём
+    │   │                                 дочернем окне Win32 + FPS, температура, мощность
     │   └── HardwareWindow.xaml(.cs)      карточка железа
     │
     └── NetAudit.Rtss/                    ПУСТОЙ проект-заглушка (этап 6)

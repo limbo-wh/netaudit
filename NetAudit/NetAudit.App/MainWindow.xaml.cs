@@ -460,10 +460,18 @@ public partial class MainWindow : Window
             // Права важнее ярлыка: без них не работает половина измерений
             OfferElevationIfNeeded();
 
-            // Отладочный вход: запуск с --open-settings сразу открывает окно
-            // настроек. Нужен, чтобы проверять его автоматикой — нажать кнопку
-            // в шапке извне оказалось ненадёжно, а окно, которое не открывается,
-            // иначе никак не отличить от окна, по которому не попали мышью
+            // Отладочные входы: --gpu-load и --open-settings сразу открывают
+            // соответствующее окно. Нужны, чтобы проверять их автоматикой —
+            // нажать кнопку извне оказалось ненадёжно, а окно, которое не
+            // открывается, иначе никак не отличить от окна, по которому не
+            // попали мышью
+            if (Environment.GetCommandLineArgs().Any(a =>
+                    a.Equals("--gpu-load", StringComparison.OrdinalIgnoreCase)))
+            {
+                _ = Dispatcher.InvokeAsync(() => OnGpuVisualLoad(this, new RoutedEventArgs()),
+                                           System.Windows.Threading.DispatcherPriority.Background);
+            }
+
             if (Environment.GetCommandLineArgs().Any(a =>
                     a.Equals("--open-settings", StringComparison.OrdinalIgnoreCase)))
             {

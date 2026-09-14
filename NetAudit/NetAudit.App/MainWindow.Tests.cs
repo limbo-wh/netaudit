@@ -74,6 +74,26 @@ public partial class MainWindow
         await RunAsync(new GpuMemoryTest(passes: 2));
     }
 
+    /// <summary>
+    /// Открывает окно с видимой нагрузкой. Немодальное: пусть крутится, пока
+    /// пользователь смотрит на температуры в главном окне или запускает что-то ещё.
+    /// </summary>
+    private void OnGpuVisualLoad(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var win = new GpuLoadWindow { Owner = this };
+            win.Show();
+            AppendEventLog("👁 Открыта нагрузка видеокарты с картинкой", BrushCyan);
+        }
+        catch (Exception ex)
+        {
+            AppendEventLog($"⚠ Не удалось открыть окно нагрузки: {ex.Message}", BrushRed);
+            MessageBox.Show(this, $"Не удалось открыть окно нагрузки:\n\n{ex.Message}",
+                            "NetAudit", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
     private async void OnGpuGameTest(object sender, RoutedEventArgs e)
     {
         BottomTabs.SelectedItem = TestTab;
