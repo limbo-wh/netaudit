@@ -50,7 +50,7 @@ public sealed class RamBenchmarkResult
 /// показывала бы возможности ядра, а не памяти. Однопоточное чтение меряется
 /// отдельно — оно тоже полезно, но как другая величина.
 /// </summary>
-public sealed class RamBenchmark : IDiagnosticTest
+public sealed class RamBenchmark(RamInfo? info = null) : IDiagnosticTest
 {
     public string Title => "Скорость оперативной памяти";
 
@@ -148,7 +148,7 @@ public sealed class RamBenchmark : IDiagnosticTest
         {
             var result = await Task.Run(() => Measure(buffer, threads, log, ct), ct).ConfigureAwait(false);
             Result = result;
-            Report(log, result);
+            Report(log, result, info);
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
@@ -161,7 +161,7 @@ public sealed class RamBenchmark : IDiagnosticTest
 
     // ── Отчёт ─────────────────────────────────────────────────────────────
 
-    private static void Report(IProgress<TestLine> log, RamBenchmarkResult r)
+    private static void Report(IProgress<TestLine> log, RamBenchmarkResult r, RamInfo? info)
     {
         log.Report(TestLine.Info(Fmt.Row("Чтение",      $"{r.ReadGbs,8:F1} ГБ/с")));
         log.Report(TestLine.Info(Fmt.Row("Запись",      $"{r.WriteGbs,8:F1} ГБ/с"
@@ -180,18 +180,30 @@ public sealed class RamBenchmark : IDiagnosticTest
         var level = r.LatencyNs switch
         {
             < 70  => TestLevel.Good,
-            < 90  => TestLevel.Info,
-            < 110 => TestLevel.Warn,
+            < 95  => TestLevel.Info,
+            < 115 => TestLevel.Warn,
             _     => TestLevel.Bad,
         };
         log.Report(new TestLine(Fmt.Row("Задержка доступа", $"{r.LatencyNs,8:F1} нс"), level));
 
+        // Про выключенный профиль говорим только когда частота и правда низкая:
+        // на Ryzen до Zen 3 задержка около 90 нс встречается и с включённым XMP —
+        // столько стоит дорога до планок через внутреннюю шину процессора
+        bool fastMemory = info is not null && info.ConfiguredMts > 0 &&
+                          (info.TypeName == "DDR5" ? info.ConfiguredMts >= 5600
+                                                   : info.ConfiguredMts >= 3000);
+
         log.Report(TestLine.Dim(r.LatencyNs switch
         {
             < 70  => "   Отличная задержка: высокая частота и плотные тайминги.",
-            < 90  => "   Обычная задержка для настроенной DDR4.",
-            < 110 => "   Высоковато. Так выглядит память на штатной частоте, без профиля XMP/EXPO.",
-            _     => "   Очень высокая задержка. Профиль XMP/EXPO почти наверняка выключен в BIOS.",
+            < 95  => "   Нормальная задержка для настроенной DDR4.",
+            < 115 => fastMemory
+                     ? "   Высоковато для такой частоты — обычное дело для процессоров AMD до Zen 3, "
+                     + "где путь до памяти идёт через внутреннюю шину."
+                     : "   Высоковато. Так выглядит память на штатной частоте, без профиля XMP/EXPO.",
+            _     => fastMemory
+                     ? "   Очень высокая для такой частоты. Стоит посмотреть тайминги в BIOS."
+                     : "   Очень высокая задержка. Профиль XMP/EXPO почти наверняка выключен в BIOS.",
         }));
 
         if (r.Ladder.Count > 0)
