@@ -80,15 +80,52 @@ public sealed class NvidiaLiveProbe : IDisposable
     private Thread? _reader;
     private Thread? _errorReader;
     private NvidiaLiveSample _last = NvidiaLiveSample.Empty;
+    private DateTime _lastAt = DateTime.MinValue;
+    private DateTime _restartAt = DateTime.MinValue;
     private bool _disposed;
+
+    /// <summary>
+    /// Старше этого показания считаются застывшими. nvidia-smi печатает раз
+    /// в секунду; если строк нет пять секунд, процесс умер или встал — и старое
+    /// значение нельзя выдавать за живое.
+    /// </summary>
+    private static readonly TimeSpan Stale = TimeSpan.FromSeconds(5);
+
+    /// <summary>Не пытаться поднимать умерший процесс чаще, чем раз в это время.</summary>
+    private static readonly TimeSpan RestartEvery = TimeSpan.FromSeconds(10);
 
     /// <summary>Есть ли на машине nvidia-smi. Проверка дешёвая, без запуска.</summary>
     public static bool IsPresent => GpuInfoProbe.FindNvidiaSmi() is not null;
 
-    /// <summary>Последние полученные показания. До первой строки — пусто.</summary>
+    /// <summary>
+    /// Последние полученные показания. До первой строки — пусто; если строки
+    /// перестали приходить — тоже пусто, а процесс поднимается заново.
+    ///
+    /// Урок 14.09: сторонний скрипт снял все nvidia-smi на машине, включая наш,
+    /// и оверлей полчаса показывал «видеокарта 100%» при карте в простое —
+    /// последнее прочитанное значение выдавалось как живое.
+    /// </summary>
     public NvidiaLiveSample Last
     {
-        get { lock (_lock) return _last; }
+        get
+        {
+            bool restart;
+            NvidiaLiveSample sample;
+
+            lock (_lock)
+            {
+                bool fresh = DateTime.UtcNow - _lastAt < Stale;
+                sample = fresh ? _last : NvidiaLiveSample.Empty;
+
+                // Процесс умер (поток чтения обнулил его) — поднять, но не каждую секунду
+                restart = !fresh && _process is null && !_disposed
+                       && DateTime.UtcNow - _restartAt > RestartEvery;
+                if (restart) _restartAt = DateTime.UtcNow;
+            }
+
+            if (restart) Start();
+            return sample;
+        }
     }
 
     /// <summary>Запускает фоновое чтение. Повторный вызов ничего не делает.</summary>
@@ -158,12 +195,32 @@ public sealed class NvidiaLiveProbe : IDisposable
             while (process.StandardOutput.ReadLine() is { } line)
             {
                 if (Parse(line) is not { } sample) continue;
-                lock (_lock) _last = sample;
+                lock (_lock)
+                {
+                    _last = sample;
+                    _lastAt = DateTime.UtcNow;
+                }
             }
         }
         catch
         {
             // Процесс убит при закрытии окна — это штатное завершение чтения
+        }
+        finally
+        {
+            // Поток вышел — значит процесс кончился: сам, по чужому taskkill или при
+            // нашем Dispose. Забыть его, чтобы Last мог поднять новый; при Dispose
+            // поле уже обнулено, и это ничего не меняет
+            lock (_lock)
+            {
+                if (ReferenceEquals(_process, process))
+                {
+                    _process = null;
+                    _reader = null;
+                    _errorReader = null;
+                }
+            }
+            try { process.Dispose(); } catch { }
         }
     }
 
