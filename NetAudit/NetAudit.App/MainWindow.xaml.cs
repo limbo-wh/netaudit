@@ -80,6 +80,9 @@ public partial class MainWindow : Window
     private double? _gwLastRtt;
     private double? _cfLastRtt;
 
+    /// <summary>Шлюз найден и проба до него подключена. Если нет — панель шлюза показывает «не определён».</summary>
+    private bool _gatewayKnown;
+
     // Глобальные хоткеи — оверлей должен управляться, не выходя из игры
     private readonly HotkeyManager _hotkeys = new();
 
@@ -408,14 +411,23 @@ public partial class MainWindow : Window
             _startTime = DateTime.Now;
 
             var gwInfo = NetworkUtils.GetDefaultGatewayInfo();
-            string gateway = gwInfo.IsEmpty ? "192.168.1.1" : gwInfo.Address;
-            GatewayLabel.Text = $"Шлюз: {gateway}";
+
+            // Подставлять 192.168.1.1 «на всякий случай» нельзя: в сетях 192.168.0.x
+            // и 10.0.0.x этот адрес не отвечает никогда, и график рисовал ровные
+            // 100% потерь — ложную аварию вместо честного «шлюз неизвестен».
+            // Поэтому при неопределённом шлюзе пробу до него просто не подключаем
+            _gatewayKnown  = !gwInfo.IsEmpty;
+            string gateway = gwInfo.Address ?? "";
+
+            GatewayLabel.Text = _gatewayKnown ? $"Шлюз: {gateway}" : "Шлюз: не определён";
             StatusLabel.Text  = "Работает";
 
             _scheduler = new ProbeScheduler(gateway, TimeSpan.FromMilliseconds(250));
-            _scheduler.GatewayResult    += OnGatewayResult;
+            if (_gatewayKnown) _scheduler.GatewayResult += OnGatewayResult;
             _scheduler.CloudflareResult += OnCloudflareResult;
             _scheduler.Start();
+
+            if (!_gatewayKnown) ShowGatewayUnknown();
 
             StartBlackBox();
 
@@ -431,7 +443,8 @@ public partial class MainWindow : Window
             }
             else
             {
-                AppendEventLog("⚠ Шлюз не определён, взят адрес по умолчанию 192.168.1.1", BrushYellow);
+                AppendEventLog("⚠ Шлюз не определён — проба до него не запускается. " +
+                               "Проверка интернета через 1.1.1.1 работает как обычно", BrushYellow);
             }
 
             _sysScheduler = new SystemMetricsScheduler();
@@ -498,6 +511,23 @@ public partial class MainWindow : Window
     }
 
     // ── Пинг: шлюз ───────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Панель шлюза без данных. Прочерки честнее нулей: пробы до шлюза нет,
+    /// потому что адрес неизвестен, а не потому что роутер не отвечает.
+    /// </summary>
+    private void ShowGatewayUnknown()
+    {
+        ValGateway.Text       = "не определён";
+        ValGateway.Foreground = BrushDim;
+        DotGateway.Fill       = BrushDim;
+
+        foreach (var tb in new[] { MinGw, AvgGw, MaxGw, JitterGw, AvailGw, LossGw, ConsecGw, PktsGw })
+        {
+            tb.Text       = "—";
+            tb.Foreground = BrushDim;
+        }
+    }
 
     private void OnGatewayResult(PingResult r)
     {
@@ -617,7 +647,7 @@ public partial class MainWindow : Window
 
         if (h.OsCaption.Length > 0)
         {
-            string os = h.OsCaption.Replace("Microsoft ", "").Replace("Windows ", "Win ");
+            string os = ShortenOsName(h.OsCaption);
             if (h.OsDisplayVersion.Length > 0) os += $" {h.OsDisplayVersion}";
             parts.Add(os);
         }
@@ -630,11 +660,45 @@ public partial class MainWindow : Window
 
     private static string ShortenCpuName(string name)
     {
-        // "Intel(R) Core(TM) i7-12700K CPU @ 3.60GHz" → "Intel Core i7-12700K"
-        name = name.Replace("(R)", "").Replace("(TM)", "").Replace("  ", " ").Trim();
-        int atIdx = name.IndexOf(" CPU @");
-        if (atIdx > 0) name = name[..atIdx].Trim();
-        return name;
+        // "Intel(R) Core(TM) i7-12700K CPU @ 3.60GHz"      → "Intel Core i7-12700K"
+        // "AMD Ryzen 7 5800X 8-Core Processor"             → "AMD Ryzen 7 5800X"
+        // "AMD Ryzen 5 5600G with Radeon Graphics"         → "AMD Ryzen 5 5600G"
+        // Раньше отрезался только хвост " CPU @" — это формат Intel, и длинное
+        // имя AMD целиком лезло в шапку окна
+        name = name.Replace("(R)", "").Replace("(TM)", "").Replace("(tm)", "").Trim();
+
+        foreach (var marker in new[] { " CPU @", " @ ", " @", " with Radeon", " w/ Radeon" })
+        {
+            int i = name.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (i > 0) name = name[..i];
+        }
+
+        // «8-Core Processor», «16-Core Processor» и одиночное «Processor» в хвосте
+        name = System.Text.RegularExpressions.Regex.Replace(
+            name, @"\s+\d+-Core(\s+Processor)?\s*$", "",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        name = System.Text.RegularExpressions.Regex.Replace(
+            name, @"\s+Processor\s*$", "",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        // Удаление кусков оставляет двойные пробелы
+        return System.Text.RegularExpressions.Regex.Replace(name, @"\s{2,}", " ").Trim();
+    }
+
+    /// <summary>
+    /// Короткая подпись операционной системы. Замена одного лишь "Microsoft "
+    /// не работала на локализованной Windows: «Майкрософт Windows 11 Pro»
+    /// превращалось в «Майкрософт Win 11 Pro».
+    /// </summary>
+    private static string ShortenOsName(string caption)
+    {
+        string os = caption.Trim();
+
+        foreach (var vendor in new[] { "Microsoft ", "Майкрософт " })
+            if (os.StartsWith(vendor, StringComparison.OrdinalIgnoreCase))
+                os = os[vendor.Length..];
+
+        return os.Replace("Windows ", "Win ").Trim();
     }
 
     private static string ShortenGpuName(string name)
@@ -767,15 +831,72 @@ public partial class MainWindow : Window
 
     // ── Wi-Fi ─────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Чем подключён компьютер, когда активного Wi-Fi нет. Три исхода вместо
+    /// прежних двух: кабель, мобильный модем и «сети нет вовсе». Ищем адаптер
+    /// в состоянии Up с настоящим шлюзом — без этого условия в список попадают
+    /// виртуальные мосты Hyper-V и VirtualBox, которые подняты всегда.
+    /// </summary>
+    private static (string type, string detail, bool connected) DescribeNonWifiConnection()
+    {
+        try
+        {
+            foreach (var ni in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up) continue;
+                if (ni.NetworkInterfaceType == System.Net.NetworkInformation.NetworkInterfaceType.Loopback) continue;
+
+                var gateways = ni.GetIPProperties().GatewayAddresses;
+                bool hasGateway = gateways.Any(g => g.Address is { } a
+                                                 && !a.Equals(System.Net.IPAddress.Any)
+                                                 && !a.Equals(System.Net.IPAddress.IPv6Any));
+                if (!hasGateway) continue;
+
+                return ni.NetworkInterfaceType switch
+                {
+                    System.Net.NetworkInformation.NetworkInterfaceType.Ethernet or
+                    System.Net.NetworkInformation.NetworkInterfaceType.GigabitEthernet or
+                    System.Net.NetworkInformation.NetworkInterfaceType.FastEthernetT or
+                    System.Net.NetworkInformation.NetworkInterfaceType.FastEthernetFx or
+                    System.Net.NetworkInformation.NetworkInterfaceType.Ethernet3Megabit
+                        => ("Ethernet", "  подключено по кабелю", true),
+
+                    System.Net.NetworkInformation.NetworkInterfaceType.Wwanpp or
+                    System.Net.NetworkInformation.NetworkInterfaceType.Wwanpp2 or
+                    System.Net.NetworkInformation.NetworkInterfaceType.Ppp
+                        => ("Мобильная сеть", $"  через «{ni.Name}»", true),
+
+                    // Беспроводной адаптер поднят, а сведений о сети нет: их отдаёт
+                    // служба WLAN, и она бывает выключена или недоступна без прав
+                    System.Net.NetworkInformation.NetworkInterfaceType.Wireless80211
+                        => ("Wi-Fi", "  сведения о сети недоступны", true),
+
+                    _ => ("Подключено", $"  через «{ni.Name}»", true),
+                };
+            }
+        }
+        catch
+        {
+            // Список адаптеров может не отдаться в момент их перенастройки —
+            // молчать честнее, чем гадать
+            return ("Сеть", "  состояние подключения неизвестно", true);
+        }
+
+        return ("Нет сети", "  активное подключение не найдено", false);
+    }
+
     private void OnWifi(WifiInfo? info)
     {
         Dispatcher.InvokeAsync(() =>
         {
             if (info is null || !info.IsWifi)
             {
-                WifiTypeLbl.Text       = "Ethernet";
-                WifiTypeLbl.Foreground = BrushDim;
-                WifiSsidLbl.Text       = "  подключено по кабелю";
+                // «Не Wi-Fi» ещё не значит «кабель»: без сети вообще и через
+                // USB-модем 4G строка раньше уверенно врала «подключено по кабелю»
+                var (type, detail, connected) = DescribeNonWifiConnection();
+                WifiTypeLbl.Text       = type;
+                WifiTypeLbl.Foreground = connected ? BrushDim : BrushRed;
+                WifiSsidLbl.Text       = detail;
                 WifiSignalLbl.Text     = "";
                 WifiTechLbl.Text       = "";
                 return;
@@ -1192,6 +1313,9 @@ public partial class MainWindow : Window
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
+        // Стартовый размер задан под большой монитор — на низком экране окно
+        // надо ужать, иначе нижние вкладки уезжают за край
+        App.FitToScreen(this);
         _hotkeys.Attach(this);
         RebindHotkeys();
         SingleInstance.Attach(this, ShowFromTray);
@@ -1542,12 +1666,25 @@ public partial class MainWindow : Window
         try { _blackBox.CloseCleanly(); } catch { }
 
         if (_gameBoost.Active) { try { await _gameBoost.RevertAsync(); } catch { } }
-        ShutdownGameMode();
-        ShutdownTray();
-        _hotkeys.Dispose();
-        _overlay?.Close();
-        if (_scheduler is not null)    await _scheduler.DisposeAsync();
-        if (_sysScheduler is not null) await _sysScheduler.DisposeAsync();
+
+        // Метод объявлен async void: исключение отсюда некому поймать — оно всплывает
+        // в диспетчер, показывает окно ошибки при обычном закрытии и, что хуже,
+        // обрывает цепочку — сеанс ETW остаётся жить в системе до перезагрузки.
+        // Поэтому каждое освобождение в своём try: неудача одного не мешает остальным
+        try { ShutdownGameMode(); }  catch { }
+        try { ShutdownTray(); }      catch { }
+        try { _hotkeys.Dispose(); }  catch { }
+        try { _overlay?.Close(); }   catch { }
+
+        if (_scheduler is not null)
+        {
+            try { await _scheduler.DisposeAsync(); } catch { }
+        }
+
+        if (_sysScheduler is not null)
+        {
+            try { await _sysScheduler.DisposeAsync(); } catch { }
+        }
     }
 
     // ── Вспомогательные ───────────────────────────────────────────────────

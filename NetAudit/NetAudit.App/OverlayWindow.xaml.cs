@@ -67,12 +67,52 @@ public partial class OverlayWindow : Window
     {
         InitializeComponent();
         _settings = settings;
-        Left = settings.OverlayLeft;
-        Top  = settings.OverlayTop;
+        ApplyStartPosition(settings);
         ApplySettings(settings);
 
         _topmostKeeper.Tick += (_, _) => ReassertTopmost();
         Closed += (_, _) => _topmostKeeper.Stop();
+    }
+
+    /// <summary>
+    /// Ставит окно туда, где его видно. Позиция в настройках могла быть сохранена
+    /// на другой конфигурации мониторов — с двумя экранами или с 4K, — и тогда она
+    /// уводит оверлей за границу текущего экрана. Вернуть его мышью нельзя: окно
+    /// клик-сквозное по построению, ни нажать, ни перетащить. Поэтому позицию
+    /// зажимаем в границы виртуального экрана, а совсем невменяемую заменяем на
+    /// левый верхний угол основного монитора.
+    /// </summary>
+    private void ApplyStartPosition(AppSettings settings)
+    {
+        // Виртуальный экран — прямоугольник, охватывающий все мониторы;
+        // свойства SystemParameters отдают его уже в единицах WPF
+        double vLeft   = SystemParameters.VirtualScreenLeft;
+        double vTop    = SystemParameters.VirtualScreenTop;
+        double vRight  = vLeft + SystemParameters.VirtualScreenWidth;
+        double vBottom = vTop  + SystemParameters.VirtualScreenHeight;
+
+        // Сколько окна обязано остаться на экране, чтобы его вообще было заметно.
+        // Точный размер тут ещё неизвестен: SizeToContent считает его после показа
+        const double visible = 60;
+
+        double left = settings.OverlayLeft;
+        double top  = settings.OverlayTop;
+
+        bool onScreen = !double.IsNaN(left) && !double.IsNaN(top)
+                     && left + visible > vLeft && left < vRight - visible
+                     && top  + visible > vTop  && top  < vBottom - visible;
+
+        if (onScreen)
+        {
+            Left = Math.Clamp(left, vLeft, Math.Max(vLeft, vRight - visible));
+            Top  = Math.Clamp(top,  vTop,  Math.Max(vTop,  vBottom - visible));
+        }
+        else
+        {
+            var primary = SystemParameters.WorkArea;
+            Left = primary.Left + 20;
+            Top  = primary.Top  + 20;
+        }
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -115,7 +155,7 @@ public partial class OverlayWindow : Window
     public void SnapToCorner(int corner)
     {
         const double margin = 20;
-        var area = SystemParameters.WorkArea;
+        var area = CurrentScreenWorkArea();
 
         double w = ActualWidth  > 0 ? ActualWidth  : Width;
         double h = ActualHeight > 0 ? ActualHeight : Height;
@@ -133,6 +173,37 @@ public partial class OverlayWindow : Window
         _settings.OverlayLeft = Left;
         _settings.OverlayTop  = Top;
         _settings.Save();
+    }
+
+    /// <summary>
+    /// Рабочая область того монитора, на котором окно находится сейчас.
+    /// <c>SystemParameters.WorkArea</c> здесь не годится: это всегда основной
+    /// монитор, и хоткеи углов швыряли оверлей к нему, даже когда игра шла
+    /// на втором экране. WinForms отдаёт границы в физических пикселях,
+    /// а WPF считает в аппаратно-независимых точках — переводим через
+    /// матрицу источника представления.
+    /// </summary>
+    private Rect CurrentScreenWorkArea()
+    {
+        try
+        {
+            IntPtr hwnd = _hwnd != IntPtr.Zero ? _hwnd : new WindowInteropHelper(this).Handle;
+            if (hwnd == IntPtr.Zero) return SystemParameters.WorkArea;
+
+            var wa = System.Windows.Forms.Screen.FromHandle(hwnd).WorkingArea;
+
+            var transform = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformFromDevice;
+            if (transform is not { } m) return SystemParameters.WorkArea;
+
+            var topLeft     = m.Transform(new System.Windows.Point(wa.Left,  wa.Top));
+            var bottomRight = m.Transform(new System.Windows.Point(wa.Right, wa.Bottom));
+            return new Rect(topLeft, bottomRight);
+        }
+        catch
+        {
+            // Экран мог отключиться прямо сейчас — лучше основной, чем исключение
+            return SystemParameters.WorkArea;
+        }
     }
 
     public void Push(float cpu, float gpu, double cpuTemp, double gpuTemp,

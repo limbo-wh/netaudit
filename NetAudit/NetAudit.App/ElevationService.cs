@@ -142,17 +142,24 @@ public static class ElevationService
                 CreateNoWindow         = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError  = true,
-                // Кодировку не навязываем. Попытка читать вывод как Unicode
-                // превращала XML в иероглифы, «<Command>» не находился, задача
-                // считалась ненастроенной — и автоповышение молча не срабатывало
-                StandardOutputEncoding = Encoding.UTF8,
+                // Кодировку не навязываем: schtasks пишет вывод в кодовой странице
+                // консоли, а не в UTF-8. С навязанным UTF8Encoding XML превращался
+                // в иероглифы там, где путь или имя пользователя не-ASCII
+                // (C:\Users\Админ\...), «<Command>» не находился, задача считалась
+                // ненастроенной — и автоповышение молча не срабатывало
             };
 
             using var p = Process.Start(psi);
             if (p is null) return null;
 
             string xml = p.StandardOutput.ReadToEnd();
-            p.WaitForExit(3000);
+            // WaitForExit с таймаутом возвращает false, если процесс не успел;
+            // обращение к ExitCode в этот момент бросает InvalidOperationException
+            if (!p.WaitForExit(3000))
+            {
+                try { p.Kill(entireProcessTree: true); } catch { }
+                return null;
+            }
             if (p.ExitCode != 0) return null;
 
             const string open = "<Command>";
@@ -190,19 +197,26 @@ public static class ElevationService
             return false;
         }
 
+        // В одинарных кавычках PowerShell апостроф закрывает строку, поэтому его
+        // удваивают. Без этого путь вида C:\Users\O'Brien\... рвал скрипт: задача
+        // не создавалась никогда, а сообщение об ошибке было невнятным. Заодно это
+        // закрывает подстановку произвольного кода через имя папки
+        string exeLiteral  = exe.Replace("'", "''");
+        string taskLiteral = TaskName.Replace("'", "''");
+
         // Скрипт пишется во временный файл: передавать его текстом в аргументах
         // PowerShell 5.1 — верный способ потерять кириллицу и кавычки
         string script = $$"""
             $ErrorActionPreference = 'Stop'
             try {
-                $action = New-ScheduledTaskAction -Execute '{{exe}}'
+                $action = New-ScheduledTaskAction -Execute '{{exeLiteral}}'
                 $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" `
                                                         -RunLevel Highest -LogonType Interactive
                 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries `
                                                          -DontStopIfGoingOnBatteries `
                                                          -ExecutionTimeLimit ([TimeSpan]::Zero) `
                                                          -MultipleInstances IgnoreNew
-                Register-ScheduledTask -TaskName '{{TaskName}}' -Action $action `
+                Register-ScheduledTask -TaskName '{{taskLiteral}}' -Action $action `
                                        -Principal $principal -Settings $settings -Force | Out-Null
                 exit 0
             } catch {
@@ -233,7 +247,15 @@ public static class ElevationService
                 return false;
             }
 
-            p.WaitForExit(60_000);
+            // Минуты хватает даже на неспешный ответ пользователя в окне UAC.
+            // Если не уложились — процесс надо снять: чтение ExitCode у живого
+            // процесса бросает InvalidOperationException
+            if (!p.WaitForExit(60_000))
+            {
+                try { p.Kill(entireProcessTree: true); } catch { }
+                error = "настройка задачи не завершилась за минуту и была прервана";
+                return false;
+            }
 
             if (p.ExitCode != 0)
             {
@@ -276,9 +298,28 @@ public static class ElevationService
             };
 
             using var p = Process.Start(psi);
-            p?.WaitForExit(30_000);
+            if (p is null)
+            {
+                error = "не удалось запустить удаление задачи";
+                return false;
+            }
+
+            if (!p.WaitForExit(30_000))
+            {
+                try { p.Kill(entireProcessTree: true); } catch { }
+                error = "удаление задачи не завершилось вовремя и было прервано";
+                return false;
+            }
+
             InvalidateCache();
-            return p?.ExitCode == 0;
+
+            if (p.ExitCode != 0)
+            {
+                error = "не удалось удалить задачу из Планировщика";
+                return false;
+            }
+
+            return true;
         }
         catch (Exception ex)
         {
@@ -310,7 +351,12 @@ public static class ElevationService
             using var p = Process.Start(psi);
             if (p is null) return false;
 
-            p.WaitForExit(10_000);
+            if (!p.WaitForExit(10_000))
+            {
+                try { p.Kill(entireProcessTree: true); } catch { }
+                return false;
+            }
+
             return p.ExitCode == 0;
         }
         catch

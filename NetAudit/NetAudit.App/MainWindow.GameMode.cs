@@ -73,8 +73,15 @@ public partial class MainWindow
         else if (!detected && _gameMode) LeaveGameMode();
     }
 
+    /// <summary>
+    /// Имя собственного процесса. Спрашиваем его у системы, а не пишем строкой:
+    /// после переименования exe зашитое «NetAudit.App» перестало бы совпадать,
+    /// и программа считала бы игрой саму себя, а разгон предлагал бы себя закрыть.
+    /// </summary>
+    private static readonly string OwnProcessName = Process.GetCurrentProcess().ProcessName;
+
     private static bool IsOwnWindow(GameModeState state) =>
-        state.ProcessName.Equals("NetAudit.App", StringComparison.OrdinalIgnoreCase);
+        state.ProcessName.Equals(OwnProcessName, StringComparison.OrdinalIgnoreCase);
 
     private bool IsExcluded(GameModeState state) =>
         state.ProcessName.Length > 0 &&
