@@ -81,7 +81,7 @@ public sealed class RamDiagnosticTest(
         if (parts.HasFlag(RamDiagnosticParts.Benchmark))
         {
             log.Report(TestLine.Dim(new string('─', 72)));
-            var b = new RamBenchmark();
+            var b = new RamBenchmark(info);
             await b.RunAsync(log, ct).ConfigureAwait(false);
             bench = b.Result;
 
@@ -181,6 +181,18 @@ public sealed class RamDiagnosticTest(
 
             if (m.SerialNumber.Length > 0)
                 log.Report(TestLine.Dim($"      серийный номер {m.SerialNumber}"));
+        }
+
+        // Напряжение берётся из таблиц BIOS, а их прошивка после включения профиля
+        // разгона обычно не переписывает: частота уже 3200, а в таблице по-прежнему
+        // штатные 1,2 В. Молчать об этом нельзя — иначе владелец решит, что профиль
+        // применился наполовину
+        if (info.Modules.Any(m => m.VoltageMv is > 0 and <= 1250) && IsAboveBaseSpeed(info))
+        {
+            log.Report(TestLine.Empty);
+            log.Report(TestLine.Dim("Напряжение показано по таблицам BIOS. После включения профиля разгона"));
+            log.Report(TestLine.Dim("прошивка часто оставляет там штатные 1,20 В, хотя подаёт больше —"));
+            log.Report(TestLine.Dim("настоящее значение видно только в самом BIOS."));
         }
 
         log.Report(TestLine.Empty);
@@ -638,10 +650,10 @@ public sealed class RamDiagnosticTest(
             log.Report(new TestLine(Fmt.Row("Задержка", $"{bench.LatencyNs:F1} нс — " + bench.LatencyNs switch
             {
                 < 70  => "хорошо, память не тормозит процессор",
-                < 90  => "нормально",
-                < 110 => "заметно выше хорошей; на слабых кадрах это чувствуется",
+                < 95  => "нормально",
+                < 115 => "заметно выше хорошей; на слабых кадрах это чувствуется",
                 _     => "высокая: процессор часто ждёт память",
-            }), bench.LatencyNs < 90 ? TestLevel.Good : TestLevel.Warn));
+            }), bench.LatencyNs < 95 ? TestLevel.Good : TestLevel.Warn));
 
             // Языковые модели в оперативной памяти: та же логика, что для видеокарты,
             // только полоса в разы уже — поэтому и скорость выдачи совсем другая
@@ -673,6 +685,10 @@ public sealed class RamDiagnosticTest(
             }
         }
     }
+
+    /// <summary>Работает ли память выше базовой частоты своего стандарта.</summary>
+    private static bool IsAboveBaseSpeed(RamInfo info) =>
+        info.TypeName == "DDR5" ? info.ConfiguredMts > 5600 : info.ConfiguredMts > 2666;
 
     /// <summary>
     /// Процессор AMD? Для памяти это не праздный вопрос: у Ryzen частота шины между
