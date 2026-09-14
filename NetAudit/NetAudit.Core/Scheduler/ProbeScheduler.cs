@@ -81,7 +81,7 @@ public sealed class ProbeScheduler : IAsyncDisposable
                 try { await _loop; } catch (OperationCanceledException) { }
             _cts.Dispose();
         }
-        _gatewayProbe.Dispose();
+        _gatewayProbe?.Dispose();
         _cloudflareProbe.Dispose();
         _logger.Dispose();
     }
