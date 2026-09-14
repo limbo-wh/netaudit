@@ -29,28 +29,68 @@ public static class CpuAffinity
     /// <summary>Задержка 64-битного умножения в тактах — основа расчёта частоты.</summary>
     private const double MultiplyLatencyCycles = 3.0;
 
+    /// <summary>Маска, которая была у потока до привязки. Ноль — привязки не было.</summary>
+    [ThreadStatic]
+    private static nuint _previousMask;
+
     /// <summary>
     /// Привязывает текущий поток к одному логическому процессору. Без привязки
     /// планировщик Windows переносит поток между ядрами, и замер мерит его решения.
+    ///
+    /// Возвращает <c>false</c>, если привязать не удалось — тогда замер по этому
+    /// логическому процессору проводить нельзя. Номера от 64 и выше отвергаются
+    /// сразу: маска в Windows описывает только текущую группу процессоров, а сдвиг
+    /// <c>1UL &lt;&lt; 64</c> в C# берётся по модулю 64 и молча привязал бы поток
+    /// к нулевому ядру, выдав чужой результат за верный.
     /// </summary>
-    public static void Pin(int cpu)
+    public static bool Pin(int cpu)
     {
+        if (cpu < 0 || cpu >= 64) return false;
+
         try
         {
             Thread.BeginThreadAffinity();
-            SetThreadAffinityMask(GetCurrentThread(), (nuint)(1UL << cpu));
+            nuint previous = SetThreadAffinityMask(GetCurrentThread(), (nuint)(1UL << cpu));
+
+            if (previous == 0)
+            {
+                // Ядра нет в текущей группе процессоров либо вызов отвергнут
+                Thread.EndThreadAffinity();
+                return false;
+            }
+
+            _previousMask = previous;
+            return true;
         }
-        catch { }
+        catch
+        {
+            return false;
+        }
     }
 
+    /// <summary>
+    /// Возвращает потоку прежнюю маску — ту, которую отдала <c>SetThreadAffinityMask</c>
+    /// при привязке. Раньше здесь строилась маска <c>(1 &lt;&lt; ProcessorCount) - 1</c>,
+    /// и ровно при 64 логических процессорах она вырождалась в ноль: вызов с нулевой
+    /// маской не делает ничего, и поток оставался привязанным к одному ядру навсегда.
+    ///
+    /// Если привязки не было (в том числе когда <see cref="Pin"/> вернула
+    /// <c>false</c>), делать нечего: <c>EndThreadAffinity</c> без парного
+    /// <c>BeginThreadAffinity</c> вызывать нельзя.
+    /// </summary>
     public static void Unpin()
     {
+        nuint restore = _previousMask;
+        if (restore == 0) return;
+
         try
         {
-            SetThreadAffinityMask(GetCurrentThread(), (nuint)((1UL << Environment.ProcessorCount) - 1));
-            Thread.EndThreadAffinity();
+            SetThreadAffinityMask(GetCurrentThread(), restore);
         }
         catch { }
+
+        _previousMask = 0;
+        try { Thread.EndThreadAffinity(); } catch { }
     }
 
     /// <summary>

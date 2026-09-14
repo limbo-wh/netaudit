@@ -194,13 +194,15 @@ public sealed class GpuStressWorker : IDisposable
         {
             var featureLevels = new[] { FeatureLevel.Level_11_1, FeatureLevel.Level_11_0 };
 
-            var result = D3D11.D3D11CreateDevice(
-                null, DriverType.Hardware, DeviceCreationFlags.None, featureLevels,
-                out ID3D11Device? device, out _, out ID3D11DeviceContext? context);
+            // Тот же адаптер, что и в замерах: греть встроенную графику, показывая
+            // температуру дискретной карты, — худшее, что может сделать стресс-тест
+            var created = GpuDeviceFactory.Create(featureLevels, DeviceCreationFlags.None);
+            var device = created?.Device;
+            var context = created?.Context;
 
-            if (result.Failure || device is null || context is null)
+            if (device is null || context is null)
             {
-                Error = $"не удалось создать устройство Direct3D 11 ({result.Description})";
+                Error = "не удалось создать устройство Direct3D 11";
                 return false;
             }
 

@@ -159,12 +159,23 @@ public sealed class GpuDiagnosticTest(GpuDiagnosticParts parts = GpuDiagnosticPa
 
         if (info is not null && info.PcieWidthMax > 0)
         {
-            bool full = info.PcieWidthCurrent >= info.PcieWidthMax && info.PcieGenCurrent >= info.PcieGenMax;
+            // Судим только по числу линий. Поколение в простое ничего не значит:
+            // NVIDIA штатно опускает линк до первого поколения, когда карта не занята,
+            // и прежняя проверка выдавала предупреждение про райзер и майнинг
+            // совершенно исправной карте на каждом запуске
+            bool full = info.PcieWidthCurrent >= info.PcieWidthMax;
+
             log.Report(new TestLine(
                 Fmt.Row("Шина PCI Express",
                         $"поколение {info.PcieGenCurrent} из {info.PcieGenMax}, " +
                         $"{info.PcieWidthCurrent} линий из {info.PcieWidthMax}"),
                 full ? TestLevel.Good : TestLevel.Warn));
+
+            if (full && info.PcieGenCurrent < info.PcieGenMax)
+                log.Report(TestLine.Dim("   Поколение шины ниже предельного — это нормально в простое:"));
+
+            if (full && info.PcieGenCurrent < info.PcieGenMax)
+                log.Report(TestLine.Dim("   под нагрузкой карта поднимает его сама."));
 
             if (!full)
             {
@@ -259,12 +270,17 @@ public sealed class GpuDiagnosticTest(GpuDiagnosticParts parts = GpuDiagnosticPa
         // даёт только сама игра, а эти границы отделяют классы карт друг от друга
         string resolution = bench.Fp32Tflops switch
         {
+            >= 80 => "4K и выше с запасом, включая трассировку лучей на максимуме",
             >= 40 => "4K с запасом, включая трассировку лучей",
             >= 25 => "4K в большинстве игр, 1440p с запасом",
             >= 15 => "1440p на высоких настройках, 4K в нетребовательных играх",
             >= 8  => "1440p на высоких, 1080p с большим запасом",
             >= 4  => "1080p на высоких настройках",
-            _     => "1080p на средних и низких настройках",
+            >= 2  => "1080p на средних и низких настройках",
+            // Прежняя нижняя ветка обещала 1080p и встроенной графике с 0,3 TFLOPS,
+            // которая не тянет его вовсе
+            _     => "для игр не предназначена: это встроенная графика, хватит "
+                   + "лишь на старые и очень простые игры",
         };
 
         log.Report(TestLine.Good(Fmt.Row("Комфортное разрешение", resolution)));
@@ -304,7 +320,23 @@ public sealed class GpuDiagnosticTest(GpuDiagnosticParts parts = GpuDiagnosticPa
         log.Report(TestLine.Head("Что это даёт для языковых моделей"));
 
         double vramGb = (info?.DedicatedVideoMemory ?? 0) / 1024.0 / 1024 / 1024;
+        double sharedGb = (info?.SharedSystemMemory ?? 0) / 1024.0 / 1024 / 1024;
         double bandwidth = bench?.PeakMemoryGbs ?? 0;
+
+        // У встроенной графики и у процессоров со встроенным видео своей видеопамяти
+        // нет вовсе — они работают в системной. Прежний код на этом останавливался
+        // и выдавал «видеопамяти 0 ГБ, мало по нынешним меркам», хотя такая система
+        // модели считает, просто медленнее
+        bool integrated = vramGb < 1 && sharedGb > 0;
+
+        if (integrated)
+        {
+            log.Report(TestLine.Info(Fmt.Row("Своей видеопамяти", "нет — встроенная графика")));
+            log.Report(TestLine.Dim($"   Она берёт системную: доступно до {sharedGb:F0} ГБ, но скорость"));
+            log.Report(TestLine.Dim("   там в разы ниже, чем у видеопамяти отдельной карты. Модель"));
+            log.Report(TestLine.Dim("   уместится, а вот быстрого ответа ждать не стоит."));
+            log.Report(TestLine.Empty);
+        }
 
         if (vramGb <= 0 || bandwidth <= 0)
         {
@@ -323,8 +355,11 @@ public sealed class GpuDiagnosticTest(GpuDiagnosticParts parts = GpuDiagnosticPa
             log.Report(TestLine.Dim("   без тензорных блоков — реальные движки получат больше"));
         }
 
-        // Часть видеопамяти всегда занята рабочим столом и самим движком
-        double usable = Math.Max(0, vramGb - 1.0);
+        // Часть видеопамяти всегда занята рабочим столом и самим движком. Доля, а не
+        // постоянный гигабайт: на карте с 4 ГБ он съедал четверть, а на 24 ГБ был
+        // незаметен — при том что рабочему столу нужно примерно одинаково
+        double reserve = Math.Clamp(vramGb * 0.12, 0.6, 1.5);
+        double usable = Math.Max(0, vramGb - reserve);
         log.Report(TestLine.Info(Fmt.Row("Доступно под модель", $"{usable:F1} ГБ из {vramGb:F0}")));
         log.Report(TestLine.Empty);
 

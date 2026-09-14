@@ -599,10 +599,18 @@ public sealed class CrashReportTest(int days = 30) : IDiagnosticTest
                 log.Report(TestLine.Bad("   а не одно приложение."));
             }
 
-            if (!double.IsNaN(s.MaxCpuTempC))
+            // Ноль в журнале означает «датчик не читался» (нет прав администратора
+            // или заблокирован драйвер чтения), а не «процессор был ледяным». Печатать
+            // «максимум 0 °C» — вводить в заблуждение ровно в том отчёте, где ищут перегрев
+            if (s.MaxCpuTempC > 0 && !double.IsNaN(s.MaxCpuTempC))
                 log.Report(TestLine.Info(Fmt.Row("   Максимум темп. CPU", $"{s.MaxCpuTempC:F0} °C")));
-            if (!double.IsNaN(s.MaxGpuTempC))
+            else
+                log.Report(TestLine.Dim(Fmt.Row("   Максимум темп. CPU", "не записывалась")));
+
+            if (s.MaxGpuTempC > 0 && !double.IsNaN(s.MaxGpuTempC))
                 log.Report(TestLine.Info(Fmt.Row("   Максимум темп. GPU", $"{s.MaxGpuTempC:F0} °C")));
+            else
+                log.Report(TestLine.Dim(Fmt.Row("   Максимум темп. GPU", "не записывалась")));
 
             foreach (var mark in s.TailMarks.TakeLast(3))
                 log.Report(TestLine.Dim($"   Пометка: {mark}"));

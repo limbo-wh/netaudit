@@ -78,6 +78,22 @@ public sealed class GpuVisualLoad : IDisposable
     private const int RenderWidth = 3840;
     private const int RenderHeight = 2160;
 
+    /// <summary>Ниже этого уменьшать сцену бессмысленно — нагрузки уже не будет.</summary>
+    private const int MinRenderWidth = 960;
+
+    /// <summary>
+    /// Во сколько раз уменьшено разрешение отрисовки. Единица — полное 4K.
+    ///
+    /// Уменьшать приходится именно разрешение: от числа шагов луча время кадра почти
+    /// не зависит (см. примечание к RenderWidth), поэтому прежняя защита, снижавшая
+    /// только сложность сцены, на встроенной графике не спасала — кадр оставался
+    /// длиннее двух секунд, и Windows перезапускала видеодрайвер.
+    /// </summary>
+    private int _renderScale = 1;
+
+    private int SceneWidth => Math.Max(MinRenderWidth, RenderWidth / _renderScale);
+    private int SceneHeight => Math.Max(MinRenderWidth * 9 / 16, RenderHeight / _renderScale);
+
     private const string ShaderSource = """
         struct VsOut
         {
@@ -328,13 +344,14 @@ public sealed class GpuVisualLoad : IDisposable
     {
         var levels = new[] { FeatureLevel.Level_11_1, FeatureLevel.Level_11_0 };
 
-        var hr = D3D11.D3D11CreateDevice(
-            null, DriverType.Hardware, DeviceCreationFlags.BgraSupport, levels,
-            out ID3D11Device? device, out _, out ID3D11DeviceContext? context);
+        // Тот же адаптер, что и в замерах, — см. GpuDeviceFactory
+        var created = GpuDeviceFactory.Create(levels, DeviceCreationFlags.BgraSupport);
+        var device = created?.Device;
+        var context = created?.Context;
 
-        if (hr.Failure || device is null || context is null)
+        if (device is null || context is null)
         {
-            Error = $"Direct3D 11 недоступен: {hr.Description}";
+            Error = "Direct3D 11 недоступен";
             return false;
         }
 
@@ -435,13 +452,29 @@ public sealed class GpuVisualLoad : IDisposable
         return true;
     }
 
-    /// <summary>Постоянная по размеру цель отрисовки — от неё не зависит размер окна.</summary>
+    /// <summary>
+    /// Пересоздаёт цель отрисовки после смены масштаба. Вызывается только из потока
+    /// отрисовки — там же, где создавалась исходная.
+    /// </summary>
+    private void RecreateSceneTarget()
+    {
+        _sceneSrv?.Dispose();
+        _sceneRtv?.Dispose();
+        _sceneTexture?.Dispose();
+        _sceneSrv = null;
+        _sceneRtv = null;
+        _sceneTexture = null;
+
+        CreateSceneTarget();
+    }
+
+    /// <summary>Цель отрисовки постоянного размера — от неё не зависит размер окна.</summary>
     private void CreateSceneTarget()
     {
         _sceneTexture = _device!.CreateTexture2D(new Texture2DDescription
         {
-            Width = RenderWidth,
-            Height = RenderHeight,
+            Width = (uint)SceneWidth,
+            Height = (uint)SceneHeight,
             MipLevels = 1,
             ArraySize = 1,
             Format = Format.B8G8R8A8_UNorm,
@@ -494,11 +527,22 @@ public sealed class GpuVisualLoad : IDisposable
                 double ms = sw.Elapsed.TotalMilliseconds;
                 frames++;
 
-                // Первый настоящий кадр решает, потянет ли видеокарта эту сцену.
-                // На слабой карте длинный кадр довёл бы до перезапуска драйвера
-                if (!calibrated && frames > 8)
+                // Судим по первым же кадрам, а не по восьмому: на встроенной графике
+                // восемь кадров по секунде — это уже перезапуск драйвера. И снижаем
+                // разрешение, а не сложность: время кадра определяется числом пикселей
+                if (!calibrated && frames >= 2)
                 {
+                    if (ms > MaxFrameMs && SceneWidth > MinRenderWidth)
+                    {
+                        _renderScale *= 2;
+                        RecreateSceneTarget();
+                        continue;   // следующий кадр посчитается уже в новом разрешении
+                    }
+
                     calibrated = true;
+
+                    // Разрешение опустили до предела, а кадр всё равно длинный —
+                    // остаётся упростить саму сцену
                     if (ms > MaxFrameMs)
                         _complexity = Math.Max(MinComplexity, (int)(_complexity * (MaxFrameMs / ms)));
                 }
@@ -520,6 +564,15 @@ public sealed class GpuVisualLoad : IDisposable
                 // кадры «идут», а видеокарта простаивает
                 Error ??= ex.Message;
                 _failedFrames++;
+
+                // Раньше цикл крутился до самой остановки: кадры «шли», а видеокарта
+                // простаивала. Десять подряд — значит устройство потеряно
+                if (_failedFrames >= 10)
+                {
+                    Error = $"Видеокарта перестала отвечать: {ex.Message}";
+                    break;
+                }
+
                 Thread.Sleep(50);
             }
         }
@@ -568,8 +621,8 @@ public sealed class GpuVisualLoad : IDisposable
         [
             (uint)_complexity,
             BitConverter.SingleToUInt32Bits(time),
-            BitConverter.SingleToUInt32Bits(RenderWidth),
-            BitConverter.SingleToUInt32Bits(RenderHeight),
+            BitConverter.SingleToUInt32Bits(SceneWidth),
+            BitConverter.SingleToUInt32Bits(SceneHeight),
         ];
         ctx.UpdateSubresource(parms, _constants!);
 
@@ -578,7 +631,7 @@ public sealed class GpuVisualLoad : IDisposable
 
         // Первый проход — сама сцена, всегда в постоянном разрешении
         ctx.OMSetRenderTargets(_sceneRtv!);
-        ctx.RSSetViewport(new Viewport(0, 0, RenderWidth, RenderHeight, 0, 1));
+        ctx.RSSetViewport(new Viewport(0, 0, SceneWidth, SceneHeight, 0, 1));
         ctx.PSSetShader(_ps);
         ctx.PSSetConstantBuffer(0, _constants);
         ctx.PSSetShaderResource(0, null!);  // null здесь законен: отвязать текстуру

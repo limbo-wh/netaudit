@@ -114,12 +114,18 @@ public sealed class CpuDiagnosticTest(
         if (info.Architecture.Length > 0)
             log.Report(TestLine.Info(Fmt.Row("Поколение", info.Architecture)));
 
-        string cores = $"{info.PhysicalCores} {Plural(info.PhysicalCores, "ядро", "ядра", "ядер")}, "
-                     + $"{info.LogicalCores} {Plural(info.LogicalCores, "поток", "потока", "потоков")}";
+        // Число физических ядер может остаться неизвестным (виртуальная машина,
+        // урезанный доступ к раскладке процессоров) — тогда честнее сказать об этом,
+        // чем напечатать «0 ядер»
+        string cores = info.CoresKnown
+            ? $"{info.PhysicalCores} {Plural(info.PhysicalCores, "ядро", "ядра", "ядер")}, "
+            + $"{info.LogicalCores} {Plural(info.LogicalCores, "поток", "потока", "потоков")}"
+            : $"{info.LogicalCores} {Plural(info.LogicalCores, "поток", "потока", "потоков")} "
+            + "(сколько из них физических ядер — определить не удалось)";
 
         if (info.IsHybrid)
             cores += $"   (быстрых {info.PerformanceCores}, экономичных {info.EfficiencyCores})";
-        else if (!info.SmtEnabled && info.PhysicalCores > 1)
+        else if (info.CoresKnown && !info.SmtEnabled && info.PhysicalCores > 1)
             cores += "   (многопоточность выключена или не поддерживается)";
 
         log.Report(TestLine.Info(Fmt.Row("Ядра", cores)));
@@ -180,9 +186,15 @@ public sealed class CpuDiagnosticTest(
     {
         log.Report(TestLine.Head("Что с процессором сейчас"));
 
-        log.Report(TestLine.Info(Fmt.Row("Загрузка", $"{state.LoadPercent:F0}%")));
+        // Нулевая загрузка при неотвечающих счётчиках — это не «процессор свободен»,
+        // а «спросить не удалось»: показывать её как факт нельзя
+        if (state.CountersAvailable)
+            log.Report(TestLine.Info(Fmt.Row("Загрузка", $"{state.LoadPercent:F0}%")));
+        else
+            log.Report(TestLine.Warn(Fmt.Row("Загрузка",
+                "счётчики производительности Windows не отвечают")));
 
-        if (state.CurrentMhz > 0)
+        if (state.CurrentMhz > 0 && !double.IsNaN(state.CurrentMhz))
         {
             string relative = info is { BaseMhz: > 0 }
                 ? $"   ({state.PerformancePercent:F0}% от базовых {info.BaseMhz})"
@@ -228,15 +240,23 @@ public sealed class CpuDiagnosticTest(
                 log.Report(TestLine.Good(Fmt.Row("Гипервизор", "выключен")));
             }
 
-            if (info.VbsEnabled)
+            // Трёхзначное значение: сведения о защите на основе виртуализации лежат
+            // в разделе WMI, открытом только администратору, и «не удалось узнать»
+            // нельзя показывать как «выключена»
+            if (info.VbsEnabled is true)
             {
                 log.Report(TestLine.Warn(Fmt.Row("Защита на виртуализации", "включена")));
                 log.Report(TestLine.Dim("   Изоляция ядра забирает 3–8% производительности. Выключать её"));
                 log.Report(TestLine.Dim("   стоит только осознанно: это настоящая защита от вредоносных драйверов."));
             }
-            else
+            else if (info.VbsEnabled is false)
             {
                 log.Report(TestLine.Good(Fmt.Row("Защита на виртуализации", "выключена")));
+            }
+            else
+            {
+                log.Report(TestLine.Dim(Fmt.Row("Защита на виртуализации",
+                    "неизвестно — нужны права администратора")));
             }
         }
 
@@ -343,12 +363,15 @@ public sealed class CpuDiagnosticTest(
             log.Report(TestLine.Info(Fmt.Row("Одно ядро", $"{bench.SingleThreadMops:F0} млн оп/с "
                                                         + $"на {bench.SingleCoreMhz:F0} МГц")));
 
-            int cores = info?.PhysicalCores ?? Environment.ProcessorCount;
+            int cores = info is { PhysicalCores: > 0 } ? info.PhysicalCores : Environment.ProcessorCount;
+            // Диапазоны, а не точные совпадения: у виртуальных машин и процессоров
+            // с отключённым ядром бывает 5 или 7, и они проваливались в ветку
+            // «мало ядер», хотя строка при этом красилась как хорошая
             var coreVerdict = cores switch
             {
                 >= 8 => "ядер с запасом: любая нынешняя игра занимает меньше",
-                6    => "шести ядер хватает всем нынешним играм",
-                4    => "четыре ядра — нижняя граница: в тяжёлых сценах будут просадки",
+                >= 6 => "шести ядер хватает всем нынешним играм",
+                >= 4 => "четыре ядра — нижняя граница: в тяжёлых сценах будут просадки",
                 _    => "мало ядер для нынешних игр",
             };
             log.Report(new TestLine(Fmt.Row($"Ядер {cores}", coreVerdict),
@@ -407,7 +430,7 @@ public sealed class CpuDiagnosticTest(
 
         if (info?.HypervisorPresent == true)
             obstacles.Add("работает гипервизор — несколько процентов скорости и рост задержек");
-        if (info?.VbsEnabled == true)
+        if (info?.VbsEnabled is true)
             obstacles.Add("включена защита на основе виртуализации — 3–8% производительности");
         if (state?.PowerScheme.Contains("Экономия", StringComparison.OrdinalIgnoreCase) == true)
             obstacles.Add("выбрана схема питания «Экономия энергии» — частота занижена намеренно");

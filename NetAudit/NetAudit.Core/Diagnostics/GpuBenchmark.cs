@@ -124,6 +124,9 @@ public sealed class GpuBenchmark : IDiagnosticTest
         }
         """;
 
+    /// <summary>Сколько ждать видеокарту, прежде чем считать, что драйвер сорвался.</summary>
+    private static readonly TimeSpan SyncTimeout = TimeSpan.FromSeconds(10);
+
     private ID3D11Device? _device;
     private ID3D11DeviceContext? _context;
     private ID3D11ComputeShader? _shader;
@@ -186,13 +189,15 @@ public sealed class GpuBenchmark : IDiagnosticTest
     {
         var levels = new[] { FeatureLevel.Level_11_1, FeatureLevel.Level_11_0 };
 
-        var hr = D3D11.D3D11CreateDevice(
-            null, DriverType.Hardware, DeviceCreationFlags.None, levels,
-            out ID3D11Device? device, out _, out ID3D11DeviceContext? context);
+        // Общий выбор адаптера: иначе на ноутбуке замер уходил на встроенную графику,
+        // а паспорт в том же отчёте описывал дискретную карту
+        var created = GpuDeviceFactory.Create(levels, DeviceCreationFlags.None);
+        var device = created?.Device;
+        var context = created?.Context;
 
-        if (hr.Failure || device is null || context is null)
+        if (device is null || context is null)
         {
-            log.Report(TestLine.Bad($"Не удалось создать устройство Direct3D 11: {hr.Description}"));
+            log.Report(TestLine.Bad("Не удалось создать устройство Direct3D 11"));
             return false;
         }
 
@@ -318,7 +323,11 @@ public sealed class GpuBenchmark : IDiagnosticTest
     /// </summary>
     private double MeasureCompute(long elements, CancellationToken ct)
     {
-        uint iterations = 2048;
+        // Число итераций подбирается замером, а не константой. Прежние 2048 на
+        // встроенной графике давали вызов длиной около трёх секунд — за порогом,
+        // после которого Windows считает видеодрайвер зависшим (две секунды) и
+        // перезапускает его: чёрный экран вместо результата
+        uint iterations = CalibrateIterations(elements, ct);
         double best = 0;
 
         for (int i = 0; i < Repeats; i++)
@@ -331,12 +340,52 @@ public sealed class GpuBenchmark : IDiagnosticTest
             sw.Stop();
 
             // 4 цепочки × float4 × (умножение + сложение) = 32 операции за итерацию
+            if (sw.Elapsed.TotalSeconds <= 0) continue;   // иначе в отчёт попадёт бесконечность
+
             double flops = (double)elements * iterations * 32;
             double tflops = flops / sw.Elapsed.TotalSeconds / 1e12;
             best = Math.Max(best, tflops);
         }
 
         return best;
+    }
+
+    /// <summary>
+    /// Подбирает число итераций так, чтобы один вызов занимал около 40 мс: заметно
+    /// дольше накладных расходов и в полсотни раз меньше порога срыва драйвера.
+    /// Начинаем с малого и растём — обратный порядок на слабой карте сразу дал бы
+    /// тот самый долгий вызов, от которого и защищаемся.
+    /// </summary>
+    private uint CalibrateIterations(long elements, CancellationToken ct)
+    {
+        const double TargetMs = 40;
+        const uint MaxIterations = 4096;
+
+        uint probe = 32;
+        double ms;
+
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var sw = Stopwatch.StartNew();
+            Dispatch(3, elements, probe);
+            Sync();
+            sw.Stop();
+
+            ms = sw.Elapsed.TotalMilliseconds;
+
+            // Замер меньше миллисекунды слишком шумный, чтобы по нему пересчитывать
+            if (ms >= 1) break;
+            if (probe >= MaxIterations) return MaxIterations;
+
+            probe *= 4;
+        }
+
+        double scale = TargetMs / ms;
+        double wanted = probe * scale;
+
+        return (uint)Math.Clamp(wanted, 16, MaxIterations);
     }
 
     /// <summary>Скорость шины PCI Express в обе стороны.</summary>
@@ -383,8 +432,20 @@ public sealed class GpuBenchmark : IDiagnosticTest
         ctx.End(query);
         ctx.Flush();
 
+        // Ждём не бесконечно: после срыва видеодрайвера (TDR) запрос никогда не
+        // завершится, и прежний цикл жёг целое ядро до самого закрытия программы,
+        // не реагируя даже на кнопку «Остановить»
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+
         while (!ctx.GetData(query, out int done) || done == 0)
+        {
+            if (sw.Elapsed > SyncTimeout)
+                throw new TimeoutException(
+                    "Видеокарта не ответила за " + SyncTimeout.TotalSeconds.ToString("F0") +
+                    " с — похоже на срыв драйвера. Тест остановлен.");
+
             Thread.SpinWait(64);
+        }
     }
 
     private void Cleanup()

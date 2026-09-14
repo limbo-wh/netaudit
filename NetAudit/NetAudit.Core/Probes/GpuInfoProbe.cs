@@ -28,13 +28,24 @@ public static class GpuInfoProbe
 
     public static GpuInfo? Collect(CancellationToken ct = default)
     {
-        var dxgi = QueryDxgi();
-        if (dxgi is null) return null;
+        var dxgi = QueryDxgi(out var adapter);
+        using (adapter)
+        {
+            if (dxgi is null) return null;
 
-        var nv = dxgi.VendorId == 0x10DE ? QueryNvidiaSmi(ct) : new Dictionary<string, string>();
-        var (driverVersion, driverDate) = QueryDriver(dxgi.Name);
-        var (fp16, fp64, level) = QueryCapabilities();
+            var nv = dxgi.VendorId == 0x10DE ? QueryNvidiaSmi(ct) : new Dictionary<string, string>();
+            var (driverVersion, driverDate) = QueryDriver(dxgi.Name);
+            var (fp16, fp64, level) = QueryCapabilities(adapter);
 
+            return Build(dxgi, nv, driverVersion, driverDate, fp16, fp64, level);
+        }
+    }
+
+    private static GpuInfo Build(
+        DxgiData dxgi, Dictionary<string, string> nv,
+        string driverVersion, DateTime? driverDate,
+        bool fp16, bool fp64, string level)
+    {
         return new GpuInfo
         {
             Name                 = dxgi.Name,
@@ -45,6 +56,7 @@ public static class GpuInfoProbe
             Revision             = dxgi.Revision,
             DedicatedVideoMemory = dxgi.DedicatedVideoMemory,
             SharedSystemMemory   = dxgi.SharedSystemMemory,
+            AdapterLuid          = dxgi.AdapterLuid,
 
             FeatureLevel  = level,
             SupportsFp16  = fp16,
@@ -72,10 +84,15 @@ public static class GpuInfoProbe
 
     private sealed record DxgiData(
         string Name, uint VendorId, uint DeviceId, uint SubsystemId, uint Revision,
-        long DedicatedVideoMemory, long SharedSystemMemory);
+        long DedicatedVideoMemory, long SharedSystemMemory, long AdapterLuid);
 
-    private static DxgiData? QueryDxgi()
+    /// <summary>
+    /// Выбранный адаптер отдаётся наружу живым: возможности Direct3D надо спрашивать
+    /// именно у него. Вызывающий обязан его освободить.
+    /// </summary>
+    private static DxgiData? QueryDxgi(out IDXGIAdapter1? chosen)
     {
+        chosen = null;
         try
         {
             using var factory = DXGI.CreateDXGIFactory1<IDXGIFactory1>();
@@ -113,25 +130,34 @@ public static class GpuInfoProbe
 
             if (best is null) return null;
 
-            using (best)
-            {
-                var d = best.Description1;
-                return new DxgiData(
-                    (d.Description ?? "").Trim(),
-                    (uint)d.VendorId, (uint)d.DeviceId, (uint)d.SubsystemId, (uint)d.Revision,
-                    (long)(ulong)d.DedicatedVideoMemory,
-                    (long)(ulong)d.SharedSystemMemory);
-            }
+            var d = best.Description1;
+            chosen = best;
+            return new DxgiData(
+                (d.Description ?? "").Trim(),
+                (uint)d.VendorId, (uint)d.DeviceId, (uint)d.SubsystemId, (uint)d.Revision,
+                (long)(ulong)d.DedicatedVideoMemory,
+                (long)(ulong)d.SharedSystemMemory,
+                (long)d.Luid);
         }
         catch
         {
+            chosen?.Dispose();
+            chosen = null;
             return null;
         }
     }
 
     // ── Возможности Direct3D ──────────────────────────────────────────────
 
-    private static (bool Fp16, bool Fp64, string Level) QueryCapabilities()
+    /// <summary>
+    /// Возможности спрашиваются у того же адаптера, что выбран в <see cref="QueryDxgi"/>.
+    /// Раньше сюда шёл <c>null</c>, и Windows отдавала адаптер по своему усмотрению —
+    /// на ноутбуке с двумя видеокартами паспорт получался смешанным: имя и память
+    /// от дискретной карты, уровень возможностей и FP16/FP64 от встроенной.
+    /// При явном адаптере тип драйвера обязан быть <c>Unknown</c>, иначе создание
+    /// устройства возвращает ошибку.
+    /// </summary>
+    private static (bool Fp16, bool Fp64, string Level) QueryCapabilities(IDXGIAdapter1? adapter)
     {
         try
         {
@@ -139,7 +165,9 @@ public static class GpuInfoProbe
                                  FeatureLevel.Level_11_1, FeatureLevel.Level_11_0 };
 
             var hr = D3D11.D3D11CreateDevice(
-                null, DriverType.Hardware, DeviceCreationFlags.None, levels,
+                adapter,
+                adapter is null ? DriverType.Hardware : DriverType.Unknown,
+                DeviceCreationFlags.None, levels,
                 out ID3D11Device? device, out FeatureLevel level, out ID3D11DeviceContext? ctx);
 
             if (hr.Failure || device is null) return (false, false, "");
@@ -236,6 +264,31 @@ public static class GpuInfoProbe
     ];
 
     /// <summary>
+    /// Где лежит nvidia-smi. Современный драйвер кладёт его в System32, но на драйверах
+    /// до 2019 года утилита стояла только в каталоге NVSMI в Program Files — жёсткий
+    /// путь в System32 означал «карты NVIDIA нет» на вполне живой машине.
+    /// Возвращает <c>null</c>, если утилиты нет нигде.
+    /// </summary>
+    internal static string? FindNvidiaSmi()
+    {
+        string[] candidates =
+        [
+            Path.Combine(Environment.SystemDirectory, "nvidia-smi.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                         "NVIDIA Corporation", "NVSMI", "nvidia-smi.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                         "NVIDIA Corporation", "NVSMI", "nvidia-smi.exe"),
+        ];
+
+        foreach (string path in candidates)
+        {
+            try { if (File.Exists(path)) return path; } catch { }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Спрашивает nvidia-smi одним запуском: процесс стоит около сотни миллисекунд,
     /// а полей нужно больше десятка.
     /// </summary>
@@ -243,8 +296,8 @@ public static class GpuInfoProbe
     {
         var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        string exe = Path.Combine(Environment.SystemDirectory, "nvidia-smi.exe");
-        if (!File.Exists(exe)) return result;
+        string? exe = FindNvidiaSmi();
+        if (exe is null) return result;
 
         try
         {
@@ -260,8 +313,26 @@ public static class GpuInfoProbe
             using var p = Process.Start(psi);
             if (p is null) return result;
 
-            string output = p.StandardOutput.ReadToEnd();
-            p.WaitForExit(5000);
+            // Поток ошибок обязательно вычитывать, хотя он и не нужен: канал stderr
+            // имеет свой буфер, и процесс, написавший в него больше буфера, вставал
+            // навсегда в ожидании читателя — а мы в это время висели на чтении stdout.
+            // Читаем оба разом, а по истечении срока убиваем процесс, чтобы не
+            // оставлять зомби: прежний WaitForExit(5000) просто возвращал управление
+            var stderrTask = p.StandardError.ReadToEndAsync();
+            var stdoutTask = p.StandardOutput.ReadToEndAsync();
+
+            string output = "";
+            if (p.WaitForExit(5000))
+            {
+                output = stdoutTask.GetAwaiter().GetResult();
+                try { stderrTask.GetAwaiter().GetResult(); } catch { }
+            }
+            else
+            {
+                try { p.Kill(entireProcessTree: true); } catch { }
+                try { p.WaitForExit(1000); } catch { }
+                return result;
+            }
 
             // Первая строка — первая видеокарта; нескольких карт в домашней машине
             // практически не бывает, а брать надо ту же, что выбрал DXGI

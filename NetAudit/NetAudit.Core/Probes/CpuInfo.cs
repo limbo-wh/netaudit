@@ -29,11 +29,20 @@ public sealed class CpuInfo
     /// <summary>Версия микрокода. Обновляется через BIOS и заплатки Windows.</summary>
     public string Microcode { get; init; } = "";
 
+    /// <summary>Физические ядра. Ноль — опросить раскладку ядер не удалось.</summary>
     public int PhysicalCores { get; init; }
+
     public int LogicalCores { get; init; }
 
-    /// <summary>Многопоточность на ядре: у AMD это SMT, у Intel — Hyper-Threading.</summary>
-    public bool SmtEnabled => LogicalCores > PhysicalCores;
+    /// <summary>Удалось ли вообще узнать число физических ядер.</summary>
+    public bool CoresKnown => PhysicalCores > 0;
+
+    /// <summary>
+    /// Многопоточность на ядре: у AMD это SMT, у Intel — Hyper-Threading.
+    /// При неизвестном числе физических ядер — <c>false</c>, и судить по этому
+    /// значению нельзя: сначала <see cref="CoresKnown"/>.
+    /// </summary>
+    public bool SmtEnabled => PhysicalCores > 0 && LogicalCores > PhysicalCores;
 
     /// <summary>Быстрые ядра у гибридных процессоров Intel. Ноль, если процессор обычный.</summary>
     public int PerformanceCores { get; init; }
@@ -61,8 +70,13 @@ public sealed class CpuInfo
     /// <summary>Работает ли Windows поверх гипервизора: это стоит нескольких процентов скорости.</summary>
     public bool HypervisorPresent { get; init; }
 
-    /// <summary>Включена ли защита на основе виртуализации — она тоже забирает производительность.</summary>
-    public bool VbsEnabled { get; init; }
+    /// <summary>
+    /// Включена ли защита на основе виртуализации — она тоже забирает производительность.
+    /// <c>null</c> означает «узнать не удалось»: пространство имён DeviceGuard в WMI
+    /// открыто только администратору. Раньше на его месте стояло <c>false</c>,
+    /// и отчёт уверенно сообщал «защита выключена» там, где она работает.
+    /// </summary>
+    public bool? VbsEnabled { get; init; }
 
     public string Socket { get; init; } = "";
 
@@ -82,10 +96,18 @@ public sealed class CpuState
     /// <summary>
     /// Текущая частота, МГц. Считается как базовая × производительность в процентах:
     /// значение выше базовой означает разгон в бусте, ниже — сброс частоты.
+    /// NaN — счётчики не ответили.
     /// </summary>
     public double CurrentMhz { get; init; }
 
     public double PerformancePercent { get; init; }
+
+    /// <summary>
+    /// Ответили ли счётчики производительности хоть одной строкой. При <c>false</c>
+    /// загрузка, производительность и частота — не «ноль», а «неизвестно»:
+    /// повреждённые счётчики нельзя показывать как простаивающий процессор.
+    /// </summary>
+    public bool CountersAvailable { get; init; }
 
     public double TemperatureC { get; init; } = double.NaN;
 

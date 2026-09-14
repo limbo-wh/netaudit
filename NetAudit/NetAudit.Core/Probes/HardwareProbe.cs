@@ -36,16 +36,29 @@ public static class HardwareProbe
         {
             using var s = new ManagementObjectSearcher(
                 "SELECT Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed FROM Win32_Processor");
+
+            // Суммируем по всем сокетам, а не берём первый: на двухпроцессорной
+            // машине половина ядер иначе просто не попадала в паспорт
+            string name = "";
+            int phys = 0, logic = 0, mhz = 0, sockets = 0;
+
             foreach (ManagementObject o in s.Get())
             {
-                string name = o["Name"]?.ToString()?.Trim() ?? "";
-                // убираем лишние пробелы внутри строки
-                name = System.Text.RegularExpressions.Regex.Replace(name, @"\s+", " ");
-                int phys  = Convert.ToInt32(o["NumberOfCores"]);
-                int logic = Convert.ToInt32(o["NumberOfLogicalProcessors"]);
-                int mhz   = Convert.ToInt32(o["MaxClockSpeed"]);
-                return (name, phys, logic, mhz);
+                if (name.Length == 0)
+                {
+                    name = o["Name"]?.ToString()?.Trim() ?? "";
+                    // убираем лишние пробелы внутри строки
+                    name = System.Text.RegularExpressions.Regex.Replace(name, @"\s+", " ");
+                }
+
+                phys  += Convert.ToInt32(o["NumberOfCores"]);
+                logic += Convert.ToInt32(o["NumberOfLogicalProcessors"]);
+                mhz    = Math.Max(mhz, Convert.ToInt32(o["MaxClockSpeed"]));
+                sockets++;
             }
+
+            if (sockets > 1) name = $"{sockets} × {name}";
+            if (name.Length > 0) return (name, phys, logic, mhz);
         }
         catch { }
         return (GetCpuNameFromRegistry(), Environment.ProcessorCount, Environment.ProcessorCount, 0);
@@ -81,19 +94,26 @@ public static class HardwareProbe
                 if (typeCode == 0) typeCode = Convert.ToInt32(o["SMBIOSMemoryType"]);
                 modules++;
             }
-            string ramType = typeCode switch
-            {
-                20 => "DDR",
-                21 => "DDR2",
-                24 => "DDR3",
-                26 => "DDR4",
-                34 => "DDR5",
-                _  => ""
-            };
-            return (totalBytes / 1_073_741_824.0, ramType, speed, modules);
+            // Тип памяти по кодам SMBIOS — та же таблица, что в RamInfoProbe:
+            // держать две копии с разными кодами уже приводило к «пустому типу»
+            // у ноутбучной памяти LPDDR
+            string ramType = RamInfoProbe.MemoryTypeNameFor((byte)typeCode);
+
+            // Объём из WMI бывает пустым на виртуальных машинах и урезанных BIOS,
+            // а Windows тем временем прекрасно знает настоящий: берём его оттуда
+            double totalGb = totalBytes > 0 ? totalBytes / 1_073_741_824.0 : VisibleRamGb();
+
+            return (totalGb, ramType, speed, modules);
         }
         catch { }
-        return (0, "", 0, 0);
+        return (VisibleRamGb(), "", 0, 0);
+    }
+
+    /// <summary>Объём памяти по данным Windows — запасной источник, когда WMI молчит.</summary>
+    private static double VisibleRamGb()
+    {
+        long bytes = RamInfoProbe.TotalPhysicalBytes();
+        return bytes > 0 ? bytes / 1_073_741_824.0 : 0;
     }
 
     // ── GPU ──────────────────────────────────────────────────────────────
@@ -239,30 +259,43 @@ public static class HardwareProbe
         var result = new List<DriveEntry>();
         foreach (var di in DriveInfo.GetDrives())
         {
-            if (!di.IsReady) continue;
-            if (di.DriveType == DriveType.CDRom) continue;
-
-            string mediaType = "";
+            // Каждый диск — в своём try: метка тома и файловая система бросают на
+            // зашифрованном BitLocker разделе и на отвалившемся сетевом диске, а
+            // без защиты одно такое исключение уносило весь сбор паспорта железа
             try
             {
-                string letter = di.Name.TrimEnd('\\');
-                if (drivePartition.TryGetValue(letter, out string? partKey) &&
-                    partitionDisk.TryGetValue(partKey, out string? diskNum) &&
-                    diskMedia.TryGetValue(diskNum, out string? mt))
-                    mediaType = mt;
+                if (!di.IsReady) continue;
+                if (di.DriveType == DriveType.CDRom) continue;
+
+                string mediaType = "";
+                try
+                {
+                    string letter = di.Name.TrimEnd('\\');
+                    if (drivePartition.TryGetValue(letter, out string? partKey) &&
+                        partitionDisk.TryGetValue(partKey, out string? diskNum) &&
+                        diskMedia.TryGetValue(diskNum, out string? mt))
+                        mediaType = mt;
+                }
+                catch { }
+
+                if (mediaType.Length == 0)
+                    mediaType = di.DriveType == DriveType.Fixed ? "Fixed" : di.DriveType.ToString();
+
+                string label = "";
+                try { label = di.VolumeLabel; } catch { }
+
+                string format = "";
+                try { format = di.DriveFormat; } catch { }
+
+                result.Add(new DriveEntry(
+                    di.Name.TrimEnd('\\'),
+                    label,
+                    mediaType,
+                    format,
+                    di.TotalSize,
+                    di.AvailableFreeSpace));
             }
             catch { }
-
-            if (mediaType.Length == 0)
-                mediaType = di.DriveType == DriveType.Fixed ? "Fixed" : di.DriveType.ToString();
-
-            result.Add(new DriveEntry(
-                di.Name.TrimEnd('\\'),
-                di.VolumeLabel,
-                mediaType,
-                di.DriveFormat,
-                di.TotalSize,
-                di.AvailableFreeSpace));
         }
         return result;
     }
@@ -274,25 +307,38 @@ public static class HardwareProbe
         var result = new List<AdapterEntry>();
         foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
         {
-            if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+            // Тоже в своём try: GetIPProperties бросает на адаптере, который прямо
+            // сейчас поднимается или удаляется — обычное дело при подключении VPN
+            try
+            {
+                if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
 
-            var props  = ni.GetIPProperties();
-            var ipList = props.UnicastAddresses
-                .Where(a => a.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
-                .Select(a => a.Address.ToString())
-                .ToList();
+                var ipList = new List<string>();
+                try
+                {
+                    ipList = ni.GetIPProperties().UnicastAddresses
+                        .Where(a => a.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                        .Select(a => a.Address.ToString())
+                        .ToList();
+                }
+                catch { }
 
-            long speedMbps = 0;
-            try { speedMbps = ni.Speed / 1_000_000; } catch { }
+                long speedMbps = 0;
+                try { speedMbps = ni.Speed / 1_000_000; } catch { }
 
-            result.Add(new AdapterEntry(
-                ni.Name,
-                ni.Description,
-                FormatMac(ni.GetPhysicalAddress()),
-                ipList,
-                ni.NetworkInterfaceType.ToString(),
-                speedMbps,
-                ni.OperationalStatus == OperationalStatus.Up));
+                string mac = "";
+                try { mac = FormatMac(ni.GetPhysicalAddress()); } catch { }
+
+                result.Add(new AdapterEntry(
+                    ni.Name,
+                    ni.Description,
+                    mac,
+                    ipList,
+                    ni.NetworkInterfaceType.ToString(),
+                    speedMbps,
+                    ni.OperationalStatus == OperationalStatus.Up));
+            }
+            catch { }
         }
         return result;
     }

@@ -12,16 +12,27 @@ public sealed class NetworkSpeedProbe
     {
         long rx = 0, tx = 0;
 
-        foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+        // Опрос идёт по таймеру, и любое исключение здесь валило бы планировщик
+        // целиком. Адаптеры появляются и исчезают на ходу — поднялся VPN, уснул
+        // Wi-Fi, — и обращение к статистике исчезнувшего адаптера бросает
+        try
         {
-            if (ni.OperationalStatus != OperationalStatus.Up) continue;
-            if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
-            if (IsVirtualAdapter(ni.Name, ni.Description)) continue;
+            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                try
+                {
+                    if (ni.OperationalStatus != OperationalStatus.Up) continue;
+                    if (ni.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+                    if (IsVirtualAdapter(ni.Name, ni.Description)) continue;
 
-            var stats = ni.GetIPStatistics();
-            rx += stats.BytesReceived;
-            tx += stats.BytesSent;
+                    var stats = ni.GetIPStatistics();
+                    rx += stats.BytesReceived;
+                    tx += stats.BytesSent;
+                }
+                catch { }
+            }
         }
+        catch { }
 
         var now = DateTime.UtcNow;
         double rxMBps = 0, txMBps = 0;

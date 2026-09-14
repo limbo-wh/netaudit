@@ -25,6 +25,9 @@ public sealed class RamBenchmarkResult
     public int Threads { get; init; }
     public long BufferBytes { get; init; }
     public bool NonTemporalWrites { get; init; }
+
+    /// <summary>Размеры кэшей одного ядра по уровням — чтобы правильно подписать лесенку.</summary>
+    public IReadOnlyList<long> CacheSizes { get; init; } = [];
 }
 
 /// <summary>
@@ -70,6 +73,35 @@ public sealed class RamBenchmark(RamInfo? info = null) : IDiagnosticTest
     /// <summary>Сюда стекают результаты циклов, чтобы оптимизатор не выбросил сами циклы.</summary>
     private static long _sink;
 
+    /// <summary>
+    /// Где нашлись данные при такой рабочей области. Опираемся на размеры кэшей
+    /// этого процессора; если их узнать не удалось — на задержку, как раньше.
+    /// </summary>
+    private static string WhereData(long bytes, IReadOnlyList<long> cacheSizes, double ns)
+    {
+        if (cacheSizes.Count > 0)
+        {
+            for (int level = 0; level < cacheSizes.Count; level++)
+                if (cacheSizes[level] > 0 && bytes <= cacheSizes[level])
+                    return level switch
+                    {
+                        0 => "кэш первого уровня",
+                        1 => "кэш второго уровня",
+                        _ => "кэш третьего уровня",
+                    };
+
+            return "оперативная память";
+        }
+
+        return ns switch
+        {
+            < 3  => "кэш первого уровня",
+            < 8  => "кэш второго уровня",
+            < 45 => "кэш третьего уровня",
+            _    => "оперативная память",
+        };
+    }
+
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool GetLogicalProcessorInformation(byte[]? buffer, ref uint returnLength);
 
@@ -82,6 +114,26 @@ public sealed class RamBenchmark(RamInfo? info = null) : IDiagnosticTest
     /// занимает 32 байта, тип связи лежит по смещению 8 (2 — это кэш), а описание
     /// кэша — с 16-го: уровень, ассоциативность, длина строки, затем размер.
     /// </summary>
+    /// <summary>Размеры кэшей, доступных одному ядру, по возрастанию уровня.</summary>
+    private static List<long> CacheSizesPerCore()
+    {
+        var sizes = new List<long>();
+
+        try
+        {
+            var info = Probes.CpuInfoProbe.Collect();
+
+            foreach (int level in new[] { 1, 2, 3 })
+            {
+                var cache = info.Caches.FirstOrDefault(c => c.Level == level && c.Kind != "инструкции");
+                if (cache.SizeBytes > 0) sizes.Add(cache.SizeBytes);
+            }
+        }
+        catch { }
+
+        return sizes;
+    }
+
     private static long LastLevelCacheBytes()
     {
         try
@@ -127,9 +179,15 @@ public sealed class RamBenchmark(RamInfo? info = null) : IDiagnosticTest
         long l3 = LastLevelCacheBytes();
         long wanted = Math.Max(MinBuffer, l3 * 4);
 
-        // Два буфера под копирование плюс запас: тест не должен сам вызвать нехватку памяти
-        long buffer = Math.Clamp(available / 6, Math.Min(wanted, MaxBuffer), MaxBuffer);
+        // Два буфера под копирование плюс запас: тест не должен сам вызвать нехватку
+        // памяти. Нижняя граница тоже ограничена доступным объёмом — иначе на
+        // процессоре с большим кэшем (X3D — 96 МБ, серверные — сотни) Clamp
+        // принудительно поднимал буфер до четырёх кэшей и требовал памяти больше,
+        // чем свободно, а это своп посреди замера или отказ выделения
+        long affordable = Math.Max(MinBuffer, available / 6);
+        long buffer = Math.Min(Math.Min(wanted, MaxBuffer), affordable);
         buffer -= buffer % (1024 * 1024);
+        if (buffer < 1024 * 1024) buffer = 1024 * 1024;
 
         int threads = Environment.ProcessorCount;
 
@@ -193,15 +251,24 @@ public sealed class RamBenchmark(RamInfo? info = null) : IDiagnosticTest
                           (info.TypeName == "DDR5" ? info.ConfiguredMts >= 5600
                                                    : info.ConfiguredMts >= 3000);
 
+        // Про выключенный профиль говорим только для настольной DDR4/DDR5. У
+        // ноутбучной LPDDR и у серверных платформ 110–140 нс — обычное дело, там
+        // длиннее сам путь до памяти, и XMP к этому отношения не имеет
+        bool laptopMemory = info is not null && info.TypeName.StartsWith("LPDDR", StringComparison.Ordinal);
+
         log.Report(TestLine.Dim(r.LatencyNs switch
         {
             < 70  => "   Отличная задержка: высокая частота и плотные тайминги.",
-            < 95  => "   Нормальная задержка для настроенной DDR4.",
-            < 115 => fastMemory
+            < 95  => "   Нормальная задержка для настроенной памяти.",
+            < 115 => laptopMemory
+                     ? "   Для ноутбучной памяти LPDDR это нормальная задержка."
+                     : fastMemory
                      ? "   Высоковато для такой частоты — обычное дело для процессоров AMD до Zen 3, "
                      + "где путь до памяти идёт через внутреннюю шину."
                      : "   Высоковато. Так выглядит память на штатной частоте, без профиля XMP/EXPO.",
-            _     => fastMemory
+            _     => laptopMemory
+                     ? "   Высокая задержка, но для ноутбучной памяти это в порядке вещей."
+                     : fastMemory
                      ? "   Очень высокая для такой частоты. Стоит посмотреть тайминги в BIOS."
                      : "   Очень высокая задержка. Профиль XMP/EXPO почти наверняка выключен в BIOS.",
         }));
@@ -215,13 +282,10 @@ public sealed class RamBenchmark(RamInfo? info = null) : IDiagnosticTest
             {
                 // Где именно данные нашлись, видно по самой задержке: у кэшей каждого
                 // уровня она отличается в разы, и границы уровней узнаваемы по цифрам
-                string where = ns switch
-                {
-                    < 3   => "кэш первого уровня",
-                    < 8   => "кэш второго уровня",
-                    < 45  => "кэш третьего уровня",
-                    _     => "оперативная память",
-                };
+                // Уровень определяем по размеру области и настоящим размерам кэшей
+                // этого процессора, а не по абсолютной задержке: на медленном
+                // процессоре кэш второго уровня (9 нс) подписывался третьим
+                string where = WhereData(bytes, r.CacheSizes, ns);
                 log.Report(TestLine.Info($"   {Fmt.Bytes(bytes),10}   {ns,6:F1} нс   {where}"));
             }
 
@@ -299,6 +363,7 @@ public sealed class RamBenchmark(RamInfo? info = null) : IDiagnosticTest
             Threads             = threads,
             BufferBytes         = bufferBytes,
             NonTemporalWrites   = Avx.IsSupported,
+            CacheSizes          = CacheSizesPerCore(),
         };
     }
 

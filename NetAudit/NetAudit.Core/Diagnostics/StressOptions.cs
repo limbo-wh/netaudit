@@ -33,11 +33,18 @@ public sealed record StressOptions
     /// </summary>
     public double MemoryFraction { get; init; } = 0.5;
 
-    /// <summary>Температура процессора, выше которой тест останавливается сам, °C.</summary>
-    public int CpuTempLimitC { get; init; } = 95;
+    /// <summary>
+    /// Температура процессора, выше которой тест останавливается сам, °C.
+    /// Прежние 95 останавливали прогон на исправной новой машине: у Ryzen 7000/9000
+    /// и Intel 13/14 поколений 95 °C под полной нагрузкой — проектный режим.
+    /// </summary>
+    public int CpuTempLimitC { get; init; } = (int)ThermalLimits.CpuStopC;
 
-    /// <summary>Температура видеокарты, выше которой тест останавливается сам, °C.</summary>
-    public int GpuTempLimitC { get; init; } = 95;
+    /// <summary>
+    /// Температура видеокарты, выше которой тест останавливается сам, °C.
+    /// Карты, отдающие температуру горячей точки, в норме показывают 90–100 °C.
+    /// </summary>
+    public int GpuTempLimitC { get; init; } = (int)ThermalLimits.GpuStopC;
 
     /// <summary>Останавливаться на первой же ошибке вычислений или памяти.</summary>
     public bool StopOnFirstError { get; init; }

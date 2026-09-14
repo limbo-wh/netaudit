@@ -41,7 +41,12 @@ public static class NetworkUtils
     {
         try
         {
-            var candidates = new List<(GatewayInfo Info, int Rank, int NoDns)>();
+            // Два списка вместо одного: IPv6-шлюз годится для пинга, но берётся
+            // только когда IPv4 нет вовсе. На смешанном подключении шлюз IPv4 —
+            // тот самый роутер, а адрес IPv6 у него же меняется от префикса
+            // провайдера и в отчёте читается хуже
+            var candidates   = new List<(GatewayInfo Info, int Rank, int NoDns)>();
+            var candidatesV6 = new List<(GatewayInfo Info, int Rank, int NoDns)>();
 
             foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
             {
@@ -61,19 +66,29 @@ public static class NetworkUtils
                 {
                     var addr = ga.Address;
                     if (addr is null) continue;
-                    if (addr.AddressFamily != AddressFamily.InterNetwork) continue;
+                    if (addr.AddressFamily is not (AddressFamily.InterNetwork or AddressFamily.InterNetworkV6))
+                        continue;
                     if (!IsUsableGateway(addr)) continue;
 
-                    candidates.Add((
+                    // Адрес со ссылочной областью пишется как «fe80::1%12»; без номера
+                    // области Ping такой адрес не разберёт, поэтому строку берём
+                    // целиком из IPAddress, а не из одних байтов
+                    var entry = (
                         new GatewayInfo(addr.ToString(), ni.Name, ni.Description, IsTunnel(ni)),
                         Rank(ni, addr),
-                        noDns));
+                        noDns);
+
+                    if (addr.AddressFamily == AddressFamily.InterNetwork) candidates.Add(entry);
+                    else                                                  candidatesV6.Add(entry);
                 }
             }
 
-            if (candidates.Count == 0) return default;
+            // На чисто IPv6-подключении список IPv4 пуст — раньше это означало
+            // «шлюза нет вовсе», и график задержки до шлюза оставался пустым
+            var chosen = candidates.Count > 0 ? candidates : candidatesV6;
+            if (chosen.Count == 0) return default;
 
-            return candidates
+            return chosen
                 .OrderBy(c => c.Rank)
                 .ThenBy(c => c.NoDns)
                 .First().Info;
@@ -91,6 +106,18 @@ public static class NetworkUtils
     /// </summary>
     private static bool IsUsableGateway(IPAddress addr)
     {
+        if (addr.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            // Отсев тот же по смыслу, но байтовые правила IPv4 к IPv6 неприменимы:
+            // ff00::/8 — многоадресная рассылка, ::/128 — «адреса нет», ::1 — loopback.
+            // Ссылочно-локальный fe80::/10 при этом оставляем: именно им почти всегда
+            // и представляется настоящий домашний роутер в IPv6
+            if (addr.IsIPv6Multicast) return false;
+            if (addr.Equals(IPAddress.IPv6Any)) return false;
+            if (IPAddress.IsLoopback(addr)) return false;
+            return true;
+        }
+
         var b = addr.GetAddressBytes();
 
         if (b[0] == 0) return false;                     // 0.0.0.0 — туннель без реального шлюза
@@ -146,6 +173,10 @@ public static class NetworkUtils
     /// <summary>Docker (172.17–31.x.x) и часть виртуальных коммутаторов.</summary>
     private static bool IsVirtualByAddress(IPAddress addr)
     {
+        // Признак чисто адресный и осмыслен только для IPv4: в IPv6 те же байты
+        // 0xAC 0x1x встречаются в любом обычном глобальном адресе
+        if (addr.AddressFamily != AddressFamily.InterNetwork) return false;
+
         var b = addr.GetAddressBytes();
         return b[0] == 172 && b[1] >= 16 && b[1] <= 31;
     }
