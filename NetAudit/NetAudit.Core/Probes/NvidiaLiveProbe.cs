@@ -9,12 +9,33 @@ public readonly record struct NvidiaLiveSample(
     double PowerWatts,
     double PowerLimitWatts,
     double TemperatureC,
-    double ClockMhz)
+    double ClockMhz,
+    long ReasonMask)
 {
     public static NvidiaLiveSample Empty =>
-        new(double.NaN, double.NaN, double.NaN, double.NaN, double.NaN);
+        new(double.NaN, double.NaN, double.NaN, double.NaN, double.NaN, -1);
 
     public bool HasData => !double.IsNaN(Utilization);
+
+    // Биты маски причин, по которым драйвер не поднимает частоту выше текущей.
+    // Значения из NVML (nvmlClocksEventReasons). Самое важное здесь — Idle:
+    // карта, зажатая режимом питания «Оптимальное энергопотребление», под полной
+    // нагрузкой называет причиной именно простой. Проверено 14.09.2026 на
+    // RTX 2080 SUPER: 1200 МГц при 100% загрузке и маске 0x1; после переключения
+    // режима — 1650 МГц и маска 0x4
+    public const long ReasonIdle = 0x1;
+    public const long ReasonApplicationsClocks = 0x2;
+    public const long ReasonSoftwarePowerCap = 0x4;
+    public const long ReasonHardwareSlowdown = 0x8;
+    public const long ReasonSyncBoost = 0x10;
+    public const long ReasonSoftwareThermal = 0x20;
+    public const long ReasonHardwareThermal = 0x40;
+    public const long ReasonHardwarePowerBrake = 0x80;
+
+    /// <summary>Маска получена: nvidia-smi поле знает и напечатал число.</summary>
+    public bool HasReason => ReasonMask >= 0;
+
+    public bool Has(long reason) => ReasonMask >= 0 && (ReasonMask & reason) != 0;
 }
 
 /// <summary>
@@ -38,8 +59,12 @@ public readonly record struct NvidiaLiveSample(
 /// </summary>
 public sealed class NvidiaLiveProbe : IDisposable
 {
+    // Последнее поле — битовая маска причин ограничения частоты, печатается как
+    // шестнадцатеричное число вида 0x0000000000000004. На старых драйверах поле
+    // называлось clocks_throttle_reasons.active; новое имя nvidia-smi понимает
+    // с 2023 года, старое оставлено как псевдоним — берём новое
     private const string Fields =
-        "utilization.gpu,power.draw,power.limit,temperature.gpu,clocks.sm";
+        "utilization.gpu,power.draw,power.limit,temperature.gpu,clocks.sm,clocks_event_reasons.active";
 
     private readonly object _lock = new();
     private Process? _process;
@@ -164,7 +189,16 @@ public sealed class NvidiaLiveProbe : IDisposable
             PowerWatts: Number(parts[1]),
             PowerLimitWatts: Number(parts[2]),
             TemperatureC: Number(parts[3]),
-            ClockMhz: Number(parts[4]));
+            ClockMhz: Number(parts[4]),
+            ReasonMask: parts.Length > 5 ? Mask(parts[5]) : -1);
+    }
+
+    /// <summary>«0x0000000000000004» → 4. Что угодно другое, включая «[N/A]», → −1.</summary>
+    private static long Mask(string text)
+    {
+        var t = text.Trim();
+        if (t.StartsWith("0x", StringComparison.OrdinalIgnoreCase)) t = t[2..];
+        return long.TryParse(t, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out long v) ? v : -1;
     }
 
     private static double Number(string text) =>

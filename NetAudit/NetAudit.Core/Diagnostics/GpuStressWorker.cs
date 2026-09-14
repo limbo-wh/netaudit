@@ -90,6 +90,8 @@ public sealed class GpuStressWorker : IDisposable
             uint FloatIterations;
             uint Seed;
             uint HeatCount;      // сколько элементов float4 в греющем буфере
+            uint HeatOffset;     // сдвигается между вызовами, чтобы обойти весь буфер
+            uint3 Padding;
         };
 
         [numthreads(256, 1, 1)]
@@ -111,13 +113,26 @@ public sealed class GpuStressWorker : IDisposable
                 Verify[id.x] = h;
 
             // ── 2. Нагрев ──────────────────────────────────────────────────
-            // Четыре независимые цепочки: соседние FMA не ждут друг друга,
-            // и конвейеры вычислительных блоков заполняются целиком
-            uint slot = h % HeatCount;
-            float4 v0 = Heat[slot];
-            float4 v1 = v0 * 1.0000003f + 0.0000011f;
-            float4 v2 = v0 * 0.9999997f - 0.0000007f;
-            float4 v3 = v0 * 1.0000005f + 0.0000003f;
+            // Соседние потоки берут соседние адреса: контроллер памяти собирает
+            // их в одну транзакцию. Прежняя версия давала каждому потоку свой
+            // случайный адрес (h % HeatCount) — вместо одной транзакции выходило
+            // по одной на поток, блоки стояли в ожидании памяти вместо счёта,
+            // и карта показывала «загрузку 100%» при 81 Вт из 250, не нагреваясь
+            // выше температуры покоя. Проверено замером на RTX 2080 SUPER
+            uint slot = (id.x + HeatOffset) % HeatCount;
+            float4 s = Heat[slot];
+
+            // Восемь независимых цепочек вместо четырёх: пока одна FMA ждёт
+            // собственный результат, блок считает семь соседних. Четырёх не
+            // хватало, чтобы скрыть задержку вычислений и занять конвейер
+            float4 v0 = s;
+            float4 v1 = s * 1.0000003f + 0.0000011f;
+            float4 v2 = s * 0.9999997f - 0.0000007f;
+            float4 v3 = s * 1.0000005f + 0.0000003f;
+            float4 v4 = s * 1.0000002f + 0.0000009f;
+            float4 v5 = s * 0.9999995f - 0.0000004f;
+            float4 v6 = s * 1.0000007f + 0.0000002f;
+            float4 v7 = s * 0.9999993f - 0.0000006f;
 
             float4 a = float4(1.0000001f, 0.9999999f, 1.0000002f, 0.9999998f);
             float4 b = float4(0.0000002f, -0.0000001f, 0.0000003f, -0.0000002f);
@@ -129,12 +144,25 @@ public sealed class GpuStressWorker : IDisposable
                 v1 = mad(v1, a, b);
                 v2 = mad(v2, a, b);
                 v3 = mad(v3, a, b);
+                v4 = mad(v4, a, b);
+                v5 = mad(v5, a, b);
+                v6 = mad(v6, a, b);
+                v7 = mad(v7, a, b);
+
+                // Раз в шестьдесят четыре витка трогаем видеопамять. Условие общее для
+                // всех потоков группы, так что ветвление ничего не расщепляет,
+                // а трафик идёт непрерывно — греются и чипы памяти, а не только
+                // кристалл. Гонки тут безвредны: содержимое буфера ни с чем
+                // не сверяется, важен сам трафик
+                if ((k & 63) == 0)
+                {
+                    uint p = (slot + k * 1024u) % HeatCount;
+                    v0 += Heat[p];
+                    Heat[p] = v1;
+                }
             }
 
-            // Запись обратно по разбросанному адресу — нагрузка на видеопамять.
-            // Гонки между потоками тут безвредны: содержимое греющего буфера
-            // ни с чем не сверяется, важен сам трафик
-            Heat[slot] = v0 + v1 + v2 + v3;
+            Heat[slot] = v0 + v1 + v2 + v3 + v4 + v5 + v6 + v7;
         }
         """;
 
@@ -172,6 +200,7 @@ public sealed class GpuStressWorker : IDisposable
     private uint _intIterations = 256;
     private uint _floatIterations = 256;
     private uint _heatCount;
+    private uint _heatOffset;
 
     private readonly uint[] _expected = new uint[VerifySamples];
 
@@ -276,8 +305,9 @@ public sealed class GpuStressWorker : IDisposable
         _staging = _device.CreateBuffer(new BufferDescription(
             Elements * sizeof(uint), BindFlags.None, ResourceUsage.Staging, CpuAccessFlags.Read));
 
+        // 32 байта: константный буфер кратен шестнадцати, а параметров стало пять
         _constants = _device.CreateBuffer(new BufferDescription(
-            16, BindFlags.ConstantBuffer, ResourceUsage.Default, CpuAccessFlags.None));
+            32, BindFlags.ConstantBuffer, ResourceUsage.Default, CpuAccessFlags.None));
 
         // Греющий буфер: берём самый большой, который согласилась дать видеокарта.
         // Чем он больше, тем дальше разбросаны обращения и тем честнее нагрузка
@@ -313,7 +343,7 @@ public sealed class GpuStressWorker : IDisposable
     private void InitHeatBuffer()
     {
         var ctx = _context!;
-        Span<uint> parms = [_heatCount, 0, 0, 0];
+        Span<uint> parms = [_heatCount, 0, 0, 0, 0, 0, 0, 0];
         ctx.UpdateSubresource(parms, _constants!);
 
         ctx.CSSetShader(_initShader);
@@ -330,7 +360,13 @@ public sealed class GpuStressWorker : IDisposable
     /// </summary>
     private void Calibrate()
     {
-        _intIterations = 2048;
+        // Проверочная часть намеренно короткая. Её хеш — зависимая цепочка: каждая
+        // итерация ждёт предыдущую, блок простаивает на задержках. При 2048 витках
+        // она съедала почти весь вызов, грея карту на 100 Вт из 250 и не давая ей
+        // поднять частоту выше 1200 МГц при потолке 2130. Для сверки правильности
+        // хватает и 128 витков — расхождение ловится не длиной цепочки, а самим
+        // фактом сравнения с эталоном
+        _intIterations = 128;
         if (_intIterations > MaxIntIterations) _intIterations = MaxIntIterations;
         _floatIterations = 256;
 
@@ -409,7 +445,12 @@ public sealed class GpuStressWorker : IDisposable
     {
         var ctx = _context!;
 
-        Span<uint> parms = [_intIterations, _floatIterations, FixedSeed, _heatCount];
+        // Смещение растёт от вызова к вызову — так нагрузка обходит весь буфер
+        // в видеопамяти, а не топчется по одному и тому же куску, который осел бы в кэше
+        _heatOffset += Elements;
+        if (_heatOffset >= _heatCount) _heatOffset = 0;
+
+        Span<uint> parms = [_intIterations, _floatIterations, FixedSeed, _heatCount, _heatOffset, 0, 0, 0];
         ctx.UpdateSubresource(parms, _constants!);
 
         ctx.CSSetShader(_shader);
@@ -471,9 +512,9 @@ public sealed class GpuStressWorker : IDisposable
 
     /// <summary>
     /// Сколько операций с плавающей точкой приходится на один вызов шейдера.
-    /// Четыре независимые FMA над float4 = 32 операции на итерацию каждого потока.
+    /// Восемь независимых FMA над float4 = 64 операции на итерацию каждого потока.
     /// </summary>
-    public long FlopsPerDispatch => (long)Elements * _floatIterations * 32;
+    public long FlopsPerDispatch => (long)Elements * _floatIterations * 64;
 
     /// <summary>То же за один цикл: цикл отправляет целый пакет вызовов.</summary>
     public long FlopsPerCycle => FlopsPerDispatch * BatchSize;
