@@ -1,6 +1,6 @@
 {
-    "version":  "1.1.1",
-    "notes":  "Тест: сборка без ReadyToRun (диагностика блокировки Smart App Control на FastSerialization.dll)",
-    "downloadUrl":  "https://github.com/limbo-wh/netaudit/releases/download/v1.1.1/NetAudit-v1.1.1-win-x64.zip",
-    "sha256":  "267816B08C557A4E8B1E88C1EF75DE4A1EE4B1ABB47C329AF6430BDA18B2F8A8"
+    "version":  "1.2.0",
+    "notes":  "Диагностика процессора и оперативной памяти, работа на чужом железе: около восьмидесяти исправлений по итогам аудита",
+    "downloadUrl":  "https://github.com/limbo-wh/netaudit/releases/download/v1.2.0/NetAudit-v1.2.0-win-x64.zip",
+    "sha256":  "61F7F193FCC3367CBE48A759793F2FFFBA1C1881935E3EAA9668A70ADFBA75DF"
 }
