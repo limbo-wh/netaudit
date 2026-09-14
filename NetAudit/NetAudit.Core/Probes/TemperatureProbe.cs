@@ -56,8 +56,9 @@ public sealed class TemperatureProbe : IDisposable
         // и ядро, и горячую точку, и память карты
         bool elevated = FpsProbe.IsElevated;
 
+        // Коротко: кто выводит эту причину, сам говорит, что именно недоступно
         if (!elevated)
-            Unavailable = "нужны права администратора — температура процессора недоступна";
+            Unavailable = "нужны права администратора";
 
         try
         {

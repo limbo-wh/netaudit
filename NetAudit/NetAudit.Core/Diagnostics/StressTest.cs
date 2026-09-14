@@ -380,6 +380,16 @@ public sealed class StressTest(
             $"{errors,8}";
 
         log.Report(new TestLine(line, errors > 0 ? TestLevel.Bad : TestLevel.Info));
+
+        // Та же строка — в чёрный ящик. Раньше туда шли только отметки начала и
+        // конца: при крахе посреди теста оставались общие посекундные замеры, а
+        // что тест успел насчитать — ошибки, скорость, температуры на этот момент —
+        // терялось вместе с окном отчёта
+        blackBox?.Mark(
+            $"стресс-тест {elapsed:hh\\:mm\\:ss}: CPU {Val(s.CpuPercent, 0, 0)}%, " +
+            $"темп. CPU {Val(s.CpuTempC, 0, 0)}, темп. GPU {Val(s.GpuTempC, 0, 0)}, " +
+            $"CPU {(ops > 0 ? (ops / 1e6).ToString("F0") : "—")} Моп/с, " +
+            $"GPU {(_gpuGops > 0 ? _gpuGops.ToString("F0") : "—")} Гоп/с, ошибок {errors}");
     }
 
     private static string Val(double v, int digits, int width) =>
@@ -777,9 +787,17 @@ public sealed class StressTest(
         // ── Температуры ───────────────────────────────────────────────────
         var stats = _monitor.Stats;
 
-        if (_monitor.TemperatureAvailable && !double.IsNaN(stats.MaxCpuTempC))
+        // Процессор и видеокарта — раздельно: датчики у них живут разными путями,
+        // и на этой машине видеокарта читается, а процессор нет. Прежняя версия
+        // при недоступном процессоре молчала и про видеокарту, а причиной всегда
+        // называла права — хотя дело было в заблокированном драйвере
+        bool haveCpu = !double.IsNaN(stats.MaxCpuTempC);
+        bool haveGpu = !double.IsNaN(stats.MaxGpuTempC);
+
+        if (haveCpu || haveGpu) log.Report(TestLine.Empty);
+
+        if (haveCpu)
         {
-            log.Report(TestLine.Empty);
             log.Report(TestLine.Info(Fmt.Row("Температура CPU, макс.", $"{stats.MaxCpuTempC:F0} °C")));
             log.Report(TestLine.Info(Fmt.Row("Температура CPU, средн.", $"{stats.AvgCpuTempC:F0} °C")));
 
@@ -787,19 +805,26 @@ public sealed class StressTest(
                          : stats.MaxCpuTempC >= ThermalLimits.CpuComfortableC ? TestLevel.Info
                          : TestLevel.Good;
             log.Report(new TestLine($"   {DescribeCpuTemp(stats.MaxCpuTempC)}", cpuLevel));
-
-            if (!double.IsNaN(stats.MaxGpuTempC))
-            {
-                log.Report(TestLine.Info(Fmt.Row("Температура GPU, макс.", $"{stats.MaxGpuTempC:F0} °C")));
-                var gpuLevel = stats.MaxGpuTempC >= 87 ? TestLevel.Bad
-                             : stats.MaxGpuTempC >= ThermalLimits.GpuComfortableC ? TestLevel.Info
-                             : TestLevel.Good;
-                log.Report(new TestLine($"   {DescribeGpuTemp(stats.MaxGpuTempC)}", gpuLevel));
-            }
         }
-        else
+
+        if (haveGpu)
         {
-            log.Report(TestLine.Warn("Температуры не снимались — не было прав администратора"));
+            log.Report(TestLine.Info(Fmt.Row("Температура GPU, макс.", $"{stats.MaxGpuTempC:F0} °C")));
+            var gpuLevel = stats.MaxGpuTempC >= 87 ? TestLevel.Bad
+                         : stats.MaxGpuTempC >= ThermalLimits.GpuComfortableC ? TestLevel.Info
+                         : TestLevel.Good;
+            log.Report(new TestLine($"   {DescribeGpuTemp(stats.MaxGpuTempC)}", gpuLevel));
+        }
+
+        if (!haveCpu || !haveGpu)
+        {
+            string what = !haveCpu && !haveGpu ? "Температуры не снимались"
+                        : !haveCpu ? "Температура процессора не снималась"
+                        : "Температура видеокарты не снималась";
+            string why = _monitor.TemperatureProblem.Length > 0
+                ? _monitor.TemperatureProblem
+                : "датчик не ответил";
+            log.Report(TestLine.Warn($"{what} — {why}"));
         }
 
         // ── Троттлинг ─────────────────────────────────────────────────────
