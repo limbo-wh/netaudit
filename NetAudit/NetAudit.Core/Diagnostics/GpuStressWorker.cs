@@ -16,13 +16,18 @@ namespace NetAudit.Core.Diagnostics;
 ///
 /// Шейдер делает две несвязанные вещи одновременно:
 ///
-///   1. **Греет.** Длинные цепочки independent FMA над float4 плюс чтение и запись
-///      большого буфера в видеопамяти по разбросанным адресам. Именно это даёт
-///      настоящее энергопотребление: вычислительные блоки FP32 и контроллер памяти
-///      и есть основные источники тепла у видеокарты. Первая версия считала
+///   1. **Греет.** Длинные цепочки independent FMA над float4 в счётном шейдере
+///      плюс отдельный поточный шейдер, который между счётными вызовами гонит
+///      копирование по большому буферу в видеопамяти. Именно это даёт настоящее
+///      энергопотребление: вычислительные блоки FP32 и контроллер памяти и есть
+///      основные источники тепла у видеокарты. Первая версия считала
 ///      целочисленный хеш в регистрах — она давала «загрузку 97%» по счётчику
 ///      Windows, но лишь 121 Вт из 250 и 57 °C: счётчик загрузки показывает
-///      «был ли занят хоть один блок», а не насколько.
+///      «был ли занят хоть один блок», а не насколько. Вторая трогала память
+///      изнутри счётного цикла по случайным адресам — контроллер памяти был
+///      занят на 16%, а мощность на 135 Вт при полной частоте. Поток памяти
+///      отдельным вызовом, как в замере пропускной способности, — единственное,
+///      что грузит контроллер по-настоящему.
 ///   2. **Проверяет правильность.** Отдельная целочисленная часть считает
 ///      детерминированный хеш, который сверяется с эталоном, посчитанным на
 ///      процессоре. Расхождение означает, что видеокарта посчитала неверно —
@@ -34,7 +39,7 @@ namespace NetAudit.Core.Diagnostics;
 ///
 /// **TDR.** Если один вызов шейдера длится дольше двух секунд, Windows считает
 /// драйвер зависшим и сбрасывает его. Объём работы на вызов подбирается замером
-/// под ~25 мс, нагрузка складывается из множества коротких вызовов подряд.
+/// под ~40 мс, нагрузка складывается из множества коротких вызовов подряд.
 /// </summary>
 public sealed class GpuStressWorker : IDisposable
 {
@@ -46,8 +51,12 @@ public sealed class GpuStressWorker : IDisposable
     /// <summary>Сколько значений сверяем с эталоном.</summary>
     private const int VerifySamples = 1024;
 
-    /// <summary>Целевая длительность вызова — в восемьдесят раз меньше порога TDR.</summary>
-    private static readonly TimeSpan TargetDispatch = TimeSpan.FromMilliseconds(25);
+    /// <summary>
+    /// Целевая длительность вызова — в пятьдесят раз меньше порога TDR. Поднята с 25
+    /// до 40 мс, когда добавился поток по памяти: он занимает около девяти
+    /// миллисекунд, и при 25 мс на счёт оставалось слишком мало.
+    /// </summary>
+    private static readonly TimeSpan TargetDispatch = TimeSpan.FromMilliseconds(40);
 
     /// <summary>
     /// Потолок итераций целочисленной части. Ограничен ценой эталона: его считает
@@ -148,19 +157,10 @@ public sealed class GpuStressWorker : IDisposable
                 v5 = mad(v5, a, b);
                 v6 = mad(v6, a, b);
                 v7 = mad(v7, a, b);
-
-                // Раз в шестьдесят четыре витка трогаем видеопамять. Условие общее для
-                // всех потоков группы, так что ветвление ничего не расщепляет,
-                // а трафик идёт непрерывно — греются и чипы памяти, а не только
-                // кристалл. Гонки тут безвредны: содержимое буфера ни с чем
-                // не сверяется, важен сам трафик
-                if ((k & 63) == 0)
-                {
-                    uint p = (slot + k * 1024u) % HeatCount;
-                    v0 += Heat[p];
-                    Heat[p] = v1;
-                }
             }
+
+            // Память изнутри этого цикла не трогаем: обращения тормозили FMA,
+            // а трафика давали мало. Поток по видеопамяти — отдельный шейдер
 
             Heat[slot] = v0 + v1 + v2 + v3 + v4 + v5 + v6 + v7;
         }
@@ -185,10 +185,83 @@ public sealed class GpuStressWorker : IDisposable
         }
         """;
 
+    /// <summary>
+    /// Поток по видеопамяти: каждый поток читает восемь float4 с шагом в целый
+    /// кусок, соседние потоки — соседние адреса, контроллер памяти собирает их
+    /// в полные транзакции и работает на всю ширину шины. Это тот же приём, что
+    /// в замере «чтение из видеопамяти» у <see cref="GpuBenchmark"/>, который на
+    /// этой карте даёт 400 ГБ/с.
+    ///
+    /// Только чтение — не копирование. Первая версия копировала из дальней
+    /// половины буфера в ближнюю, и чтение с записью одного и того же ресурса
+    /// сериализовались: 512 МБ за 42 мс, то есть 12 ГБ/с, контроллер памяти
+    /// на 8%. Чтение никому не мешает и греет память ровно так же.
+    ///
+    /// Сумму надо куда-то деть, иначе компилятор выбросит цикл целиком: пишем её
+    /// в одну ячейку при условии, которое не выполняется никогда, — записи это
+    /// не создаёт (проверено на замере: с условием цифра честная).
+    /// </summary>
+    private const string StreamShaderSource = """
+        RWStructuredBuffer<float4> Heat : register(u0);
+        RWStructuredBuffer<uint>   Sink : register(u1);
+
+        cbuffer StreamParams : register(b0)
+        {
+            uint Count;      // элементов float4 в буфере
+            uint Base;       // с какого элемента начинается этот кусок
+            uint Chunk;      // сколько элементов покрывает вызов
+            uint Padding;
+        };
+
+        [numthreads(256, 1, 1)]
+        void main(uint3 id : SV_DispatchThreadID)
+        {
+            // Один элемент на поток, строго подряд: соседние потоки — соседние
+            // адреса, страницы видеопамяти идут по порядку. Вариант «восемь чтений
+            // на поток с шагом в 256 МБ» давал 95 ГБ/с вместо 400: каждый warp
+            // трогал восемь далёких страниц, и таблица страниц карты не успевала.
+            // Объём набирается второй осью вызова: Chunk элементов на ряд групп
+            if (id.x >= Chunk) return;
+
+            uint i = (Base + id.y * Chunk + id.x) % Count;
+            float4 v = Heat[i];
+
+            float s = v.x + v.y + v.z + v.w;
+            if (s == 1e30f) Sink[0] = 1;
+        }
+        """;
+
+    /// <summary>
+    /// Элементов float4 на один поточный вызов: 256 МБ. Direct3D 11 не даёт больше
+    /// 65535 групп по одной оси, а группа — 256 потоков, отсюда потолок.
+    /// </summary>
+    private const uint StreamChunk = 65535u * GroupSize;
+
+    /// <summary>
+    /// Рядов групп по второй оси вызова: 2 × 256 МБ = 512 МБ чтения за один поточный
+    /// вызов. По первой оси Direct3D 11 даёт не больше 65535 групп, по второй —
+    /// столько же, объём набирается ею. Восемь рядов (2 ГБ) читались за 25 мс —
+    /// поток на этой карте идёт около 80 ГБ/с, а не паспортных 400, — и два таких
+    /// вызова съедали всё время, калибровке на счёт ничего не оставалось.
+    /// </summary>
+    private const uint StreamRows = 2;
+
+    /// <summary>
+    /// Поточных вызовов на один счётный. Каждый читает 2 ГБ — около пяти
+    /// миллисекунд при 400 ГБ/с; два вызова — примерно четверть времени вызова
+    /// при цели 40 мс, столько же, сколько у тяжёлой игры. Больше не нужно:
+    /// греет карту именно счёт, память лишь добавляет, а калибровка подбирает
+    /// счётную часть под остаток времени.
+    /// </summary>
+    private const int StreamDispatches = 2;
+
     private ID3D11Device? _device;
     private ID3D11DeviceContext? _context;
     private ID3D11ComputeShader? _shader;
     private ID3D11ComputeShader? _initShader;
+    private ID3D11ComputeShader? _streamShader;
+    private ID3D11Buffer? _streamConstants;
+    private uint _streamBase;
 
     private ID3D11Buffer? _verify;
     private ID3D11UnorderedAccessView? _verifyUav;
@@ -269,7 +342,10 @@ public sealed class GpuStressWorker : IDisposable
         if (_shader is null) return false;
 
         _initShader = Compile(InitShaderSource, "заполняющий");
-        return _initShader is not null;
+        if (_initShader is null) return false;
+
+        _streamShader = Compile(StreamShaderSource, "поточный");
+        return _streamShader is not null;
     }
 
     private ID3D11ComputeShader? Compile(string source, string what)
@@ -308,6 +384,11 @@ public sealed class GpuStressWorker : IDisposable
         // 32 байта: константный буфер кратен шестнадцати, а параметров стало пять
         _constants = _device.CreateBuffer(new BufferDescription(
             32, BindFlags.ConstantBuffer, ResourceUsage.Default, CpuAccessFlags.None));
+
+        // Свой буфер констант у поточного шейдера: обновлять общий между двумя
+        // вызовами в одном пакете — лишняя синхронизация ради четырёх чисел
+        _streamConstants = _device.CreateBuffer(new BufferDescription(
+            16, BindFlags.ConstantBuffer, ResourceUsage.Default, CpuAccessFlags.None));
 
         // Греющий буфер: берём самый большой, который согласилась дать видеокарта.
         // Чем он больше, тем дальше разбросаны обращения и тем честнее нагрузка
@@ -369,6 +450,17 @@ public sealed class GpuStressWorker : IDisposable
         _intIterations = 128;
         if (_intIterations > MaxIntIterations) _intIterations = MaxIntIterations;
         _floatIterations = 256;
+
+        // Прогрев перед замером. Первый вызов включает компиляцию шейдера
+        // драйвером и первое касание буфера в видеопамяти — он в десятки раз
+        // дольше настоящего. Пока замер шёл по нему, калибровка видела «54 мс
+        // при цели 40» и обрывалась на минимуме итераций: нагрузка выходила
+        // 113 Вт из 250 при полной частоте, контроллер памяти на 6%
+        for (int i = 0; i < 3; i++)
+        {
+            DispatchOnce();
+            SyncAndRead(verify: false);
+        }
 
         var last = TimeSpan.Zero;
 
@@ -455,10 +547,48 @@ public sealed class GpuStressWorker : IDisposable
 
         ctx.CSSetShader(_shader);
         ctx.CSSetConstantBuffer(0, _constants);
+
+        // После поточного вызова буферы стоят на слотах наоборот — снять оба,
+        // прежде чем ставить, иначе Direct3D молча отвяжет один из них
+        ctx.CSSetUnorderedAccessView(0, null);
+        ctx.CSSetUnorderedAccessView(1, null);
         ctx.CSSetUnorderedAccessView(0, _verifyUav);
         ctx.CSSetUnorderedAccessView(1, _heatUav);
 
         ctx.Dispatch(Elements / GroupSize, 1, 1);
+
+        // Следом — поток по видеопамяти. Очередь команд не ждёт завершения счётного
+        // вызова: карта сама распределяет блоки между ними, и контроллер памяти
+        // занят, пока считаются FMA
+        for (int i = 0; i < StreamDispatches; i++)
+            StreamOnce();
+    }
+
+    /// <summary>Один поточный вызов: копия очередного куска буфера, кусок сдвигается.</summary>
+    private void StreamOnce()
+    {
+        var ctx = _context!;
+
+        uint chunk = Math.Min(StreamChunk, _heatCount);
+        Span<uint> parms = [_heatCount, _streamBase, chunk, 0];
+        ctx.UpdateSubresource(parms, _streamConstants!);
+
+        // Вызов покрывает StreamRows кусков подряд — следующий начинается за ними
+        _streamBase = (uint)((_streamBase + (ulong)chunk * StreamRows) % _heatCount);
+
+        ctx.CSSetShader(_streamShader);
+        ctx.CSSetConstantBuffer(0, _streamConstants);
+
+        // Слоты меняются местами относительно счётного вызова: греющий буфер
+        // на 0, проверочный — как приёмник для суммы — на 1. Сначала снять оба,
+        // потом ставить: один ресурс на двух UAV-слотах Direct3D не допускает
+        // и молча отвязывает новый
+        ctx.CSSetUnorderedAccessView(0, null);
+        ctx.CSSetUnorderedAccessView(1, null);
+        ctx.CSSetUnorderedAccessView(0, _heatUav);
+        ctx.CSSetUnorderedAccessView(1, _verifyUav);
+
+        ctx.Dispatch((chunk + GroupSize - 1) / GroupSize, StreamRows, 1);
     }
 
     /// <summary>
@@ -523,17 +653,19 @@ public sealed class GpuStressWorker : IDisposable
     {
         _staging?.Dispose();
         _constants?.Dispose();
+        _streamConstants?.Dispose();
         _heatUav?.Dispose();
         _heat?.Dispose();
         _verifyUav?.Dispose();
         _verify?.Dispose();
         _initShader?.Dispose();
+        _streamShader?.Dispose();
         _shader?.Dispose();
         _context?.Dispose();
         _device?.Dispose();
 
-        _staging = null; _constants = null; _heatUav = null; _heat = null;
-        _verifyUav = null; _verify = null; _initShader = null; _shader = null;
+        _staging = null; _constants = null; _streamConstants = null; _heatUav = null; _heat = null;
+        _verifyUav = null; _verify = null; _initShader = null; _streamShader = null; _shader = null;
         _context = null; _device = null;
     }
 }
