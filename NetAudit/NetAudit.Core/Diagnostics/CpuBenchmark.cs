@@ -87,7 +87,7 @@ public sealed class CpuBenchmark(int soakSeconds = 15) : IDiagnosticTest
         var temp = new TemperatureProbe();
         temp.Initialize();
 
-        double tempStart = temp.Available ? temp.Sample().CpuTempC : double.NaN;
+        double tempStart = temp.CpuAvailable ? temp.Sample().CpuTempC : double.NaN;
 
         try
         {
@@ -642,7 +642,7 @@ public sealed class CpuBenchmark(int soakSeconds = 15) : IDiagnosticTest
         {
             while (!soakCts.Token.IsCancellationRequested)
             {
-                if (temp.Available)
+                if (temp.CpuAvailable)
                 {
                     double t = temp.Sample().CpuTempC;
                     if (!double.IsNaN(t) && (double.IsNaN(peak) || t > peak)) peak = t;

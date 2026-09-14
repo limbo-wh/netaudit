@@ -77,16 +77,35 @@ public sealed class StressTest(
         // Датчики температуры без прав администратора не поднимаются — сказать об этом
         // надо заранее, иначе пользователь решит, что тест их просто не показывает
         _monitor.Initialize();
-        if (!_monitor.TemperatureAvailable)
+
+        bool cpuTemp = _monitor.CpuTemperatureAvailable;
+        bool gpuTemp = _monitor.GpuTemperatureAvailable;
+
+        if (cpuTemp && gpuTemp)
         {
-            log.Report(TestLine.Warn(Fmt.Row("Датчики температуры", "недоступны")));
-            log.Report(TestLine.Dim("   Нужны права администратора: драйвер чтения датчиков без них не встаёт."));
-            log.Report(TestLine.Dim("   Тест выполнится, но перегрев поймать будет нечем — а это его половина смысла."));
-            log.Report(TestLine.Dim("   Перезапустите NetAudit от администратора (кнопка «Ярлык (администратор)»)."));
+            log.Report(TestLine.Good(Fmt.Row("Датчики температуры", "доступны")));
+        }
+        else if (cpuTemp || gpuTemp)
+        {
+            // Частый случай: драйвер ядра заблокирован, но видеокарта читается через NVAPI
+            string have = cpuTemp ? "только процессор" : "только видеокарта";
+            log.Report(TestLine.Warn(Fmt.Row("Датчики температуры", have)));
+
+            if (_monitor.TemperatureProblem.Length > 0)
+                log.Report(TestLine.Dim($"   {_monitor.TemperatureProblem}."));
+
+            log.Report(TestLine.Dim(cpuTemp
+                ? "   Перегрев видеокарты этот прогон не поймает."
+                : "   Перегрев процессора этот прогон не поймает."));
         }
         else
         {
-            log.Report(TestLine.Good(Fmt.Row("Датчики температуры", "доступны")));
+            log.Report(TestLine.Warn(Fmt.Row("Датчики температуры", "недоступны")));
+            log.Report(TestLine.Dim(_monitor.TemperatureProblem.Length > 0
+                ? $"   {_monitor.TemperatureProblem}."
+                : "   Нужны права администратора: драйвер чтения датчиков без них не встаёт."));
+            log.Report(TestLine.Dim("   Тест выполнится, но перегрев поймать будет нечем — а это его половина смысла."));
+            log.Report(TestLine.Dim("   Перезапустите NetAudit от администратора (кнопка «Ярлык (администратор)»)."));
         }
 
         log.Report(TestLine.Empty);
