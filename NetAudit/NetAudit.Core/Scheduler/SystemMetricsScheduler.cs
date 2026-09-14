@@ -14,7 +14,7 @@ public sealed class SystemMetricsScheduler : IAsyncDisposable
 
     // Загрузку карты NVIDIA спрашиваем у самой карты. Счётчик Windows «GPU Engine»
     // считает долю времени, что планировщик держал пакеты на движке, и на коротких
-    // кадрах систематически занижает: на скриншоте владельца 14.09 оверлей
+    // кадрах систематически занижает: на скриншоте под FurMark оверлей
     // показывал 68%, а карта под FurMark — 100%. Для карт без nvidia-smi
     // остаётся счётчик
     private readonly NvidiaLiveProbe         _nvidia     = new();

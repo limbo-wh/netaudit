@@ -112,7 +112,7 @@ public static class Fmt
     /// <summary>
     /// Ровный столбик: подпись фиксированной ширины плюс значение.
     /// Пробел добавляется принудительно — у длинной подписи PadRight ничего не добавит,
-    /// и строка слипается в «MTU до шлюза (192.168.31.1)1500 байт».
+    /// и строка слипается в «MTU до шлюза (192.168.1.1)1500 байт».
     /// </summary>
     public static string Row(string label, string value, int labelWidth = 26) =>
         (label.Length >= labelWidth ? label + "  " : label.PadRight(labelWidth)) + value;

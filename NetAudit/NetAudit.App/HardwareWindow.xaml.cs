@@ -103,8 +103,8 @@ public partial class HardwareWindow : Window
                 // Гигабитный контроллер, договорившийся на 100 Мбит, — самая частая
                 // причина «медленного интернета», которую ищут не там: замер канала
                 // упирается в 95 Мбит/с, а виноват кабель с повреждённой парой или
-                // порт роутера. На машине владельца 14.09: Realtek Gaming GbE на
-                // 100 Mbps, замер 75/85 Мбит/с — линк, а не провайдер
+                // порт роутера. Живой пример: гигабитный Realtek на 100 Mbps, замер
+                // канала 75/85 Мбит/с упирался в линк, а не в провайдера
                 if (a.IsConnected && a.SpeedMbps is > 0 and <= 100
                     && a.AdapterType.Contains("Ethernet", StringComparison.OrdinalIgnoreCase)
                     && LooksGigabit(a.Description))
