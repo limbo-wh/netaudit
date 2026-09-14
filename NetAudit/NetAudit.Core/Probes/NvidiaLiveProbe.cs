@@ -31,6 +31,15 @@ public readonly record struct NvidiaLiveSample(
     public const long ReasonSoftwareThermal = 0x20;
     public const long ReasonHardwareThermal = 0x40;
     public const long ReasonHardwarePowerBrake = 0x80;
+    public const long ReasonDisplayClockSetting = 0x100;
+
+    // Две причины появились в NVML 13 вместе с драйверами 580+: предел по
+    // надёжности напряжения (VRel у GPU-Z) и предел платы. Документация даёт
+    // имена без чисел; свободные биты после 0x100 — эти два, и на драйвере 616.92
+    // под вычислительной нагрузкой на максимальном бусте карта отдаёт 0x400 и
+    // 0x600. Какой из двух какой — не подтверждено, поэтому разбираются вместе:
+    // оба означают «карта на потолке буста», а не зажим
+    public const long ReasonReliabilityOrBoardLimit = 0x600;
 
     /// <summary>Маска получена: nvidia-smi поле знает и напечатал число.</summary>
     public bool HasReason => ReasonMask >= 0;
