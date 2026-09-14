@@ -62,9 +62,22 @@ public sealed class GpuDiagnosticTest(GpuDiagnosticParts parts = GpuDiagnosticPa
         if (parts.HasFlag(GpuDiagnosticParts.Game))
         {
             log.Report(TestLine.Dim(new string('─', 72)));
+
+            // Пока идёт игровая сцена, снимаем с карты частоту, мощность и причину,
+            // по которой драйвер не поднимает частоту выше. Это единственный способ
+            // заметить карту, зажатую режимом питания драйвера: TFLOPS и кадры
+            // просто выйдут ниже нормы, и без этих цифр отчёт скажет «карта слабее,
+            // чем должна быть», не объяснив почему
+            using var live = new NvidiaLiveProbe();
+            var watch = LoadWatch.Start(live, ct);
+
             var g = new GpuGameBenchmark(seconds: 12);
             await g.RunAsync(log, ct).ConfigureAwait(false);
             game = g.Result;
+
+            var seen = await watch.StopAsync().ConfigureAwait(false);
+            ReportLoadBehaviour(log, info, seen);
+
             log.Report(TestLine.Empty);
         }
 
@@ -235,6 +248,220 @@ public sealed class GpuDiagnosticTest(GpuDiagnosticParts parts = GpuDiagnosticPa
         catch { }
 
         log.Report(TestLine.Empty);
+    }
+
+    // ── Поведение под нагрузкой ────────────────────────────────────────────
+
+    /// <summary>
+    /// Ниже этой доли от предельной частоты карта считается зажатой — если при этом
+    /// и мощность далека от лимита. Нормальный буст лежит в 80–92% от предела
+    /// (предел — из vBIOS, буст его не достигает никогда); 75% оставляет запас
+    /// на жаркие карты, а зажатая режимом питания сидит около 55%.
+    /// </summary>
+    private const double ClockRatioLow = 0.75;
+
+    /// <summary>Ниже этой доли лимита мощность не объясняет низкую частоту.</summary>
+    private const double PowerRatioLow = 0.85;
+
+    /// <summary>Выборки с загрузкой ниже этой не считаются нагрузкой.</summary>
+    private const double LoadedUtilization = 90;
+
+    /// <summary>Сводка показаний карты за время нагрузки.</summary>
+    private sealed record LoadSeen(
+        int Samples,
+        double MedianClockMhz,
+        double MedianPowerWatts,
+        double PowerLimitWatts,
+        double MaxTemperatureC,
+        long DominantReason);
+
+    /// <summary>
+    /// Копит показания <see cref="NvidiaLiveProbe"/>, пока идёт нагрузка. Берутся
+    /// только выборки с настоящей загрузкой: первые секунды сцена ещё грузится,
+    /// и их частота — частота простоя.
+    /// </summary>
+    private sealed class LoadWatch
+    {
+        private readonly NvidiaLiveProbe _live;
+        private readonly CancellationTokenSource _cts;
+        private readonly Task _task;
+        private readonly List<NvidiaLiveSample> _seen = [];
+        private readonly bool _started;
+
+        private LoadWatch(NvidiaLiveProbe live, CancellationToken ct)
+        {
+            _live = live;
+            _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            _started = NvidiaLiveProbe.IsPresent && live.Start();
+            _task = _started ? Task.Run(Loop) : Task.CompletedTask;
+        }
+
+        public static LoadWatch Start(NvidiaLiveProbe live, CancellationToken ct) => new(live, ct);
+
+        private async Task Loop()
+        {
+            try
+            {
+                while (!_cts.IsCancellationRequested)
+                {
+                    var s = _live.Last;
+                    if (s.HasData && s.Utilization >= LoadedUtilization)
+                        lock (_seen) _seen.Add(s);
+
+                    await Task.Delay(500, _cts.Token).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException) { }
+        }
+
+        public async Task<LoadSeen> StopAsync()
+        {
+            _cts.Cancel();
+            try { await _task.ConfigureAwait(false); } catch { }
+
+            List<NvidiaLiveSample> seen;
+            lock (_seen) seen = [.. _seen];
+
+            if (seen.Count == 0)
+                return new LoadSeen(0, double.NaN, double.NaN, double.NaN, double.NaN, -1);
+
+            // Самая частая маска — а не последняя: карта мигает между причинами,
+            // и одна выборка на границе может назвать что угодно
+            long dominant = seen.Where(s => s.HasReason)
+                .GroupBy(s => s.ReasonMask)
+                .OrderByDescending(g => g.Count())
+                .Select(g => g.Key)
+                .DefaultIfEmpty(-1)
+                .First();
+
+            return new LoadSeen(
+                seen.Count,
+                Median(seen.Select(s => s.ClockMhz)),
+                Median(seen.Select(s => s.PowerWatts)),
+                seen.Select(s => s.PowerLimitWatts).LastOrDefault(v => !double.IsNaN(v), double.NaN),
+                seen.Select(s => s.TemperatureC).Where(v => !double.IsNaN(v)).DefaultIfEmpty(double.NaN).Max(),
+                dominant);
+        }
+
+        private static double Median(IEnumerable<double> values)
+        {
+            var v = values.Where(x => !double.IsNaN(x)).OrderBy(x => x).ToArray();
+            if (v.Length == 0) return double.NaN;
+            return v.Length % 2 == 1 ? v[v.Length / 2] : (v[v.Length / 2 - 1] + v[v.Length / 2]) / 2;
+        }
+    }
+
+    /// <summary>
+    /// Как карта вела себя под нагрузкой: до какой частоты поднялась, сколько взяла
+    /// мощности и что назвала причиной, по которой не поднялась выше.
+    ///
+    /// Откуда взялось. 14.09.2026 RTX 2080 SUPER под любой нагрузкой — своей,
+    /// FurMark, в окне и на весь экран — держала 1200 МГц из 2130 при 180 Вт из 250,
+    /// без троттлинга, называя причиной «Idle». Три часа ушло на блок питания,
+    /// композитор Windows, лок частот и собственный шейдер. Причиной оказался режим
+    /// «Оптимальное энергопотребление» в панели NVIDIA — умолчание драйвера, которое
+    /// переживает переустановку Windows. После переключения: 1650 МГц, 243 Вт,
+    /// причина «Pwr». Замеры TFLOPS и кадров при этом просто выходили на треть ниже
+    /// нормы, ничего не объясняя. Этот блок — чтобы отчёт объяснял.
+    /// </summary>
+    private static void ReportLoadBehaviour(IProgress<TestLine> log, GpuInfo? info, LoadSeen seen)
+    {
+        if (!NvidiaLiveProbe.IsPresent) return;
+
+        log.Report(TestLine.Empty);
+        log.Report(TestLine.Head("Поведение под нагрузкой"));
+
+        if (seen.Samples < 4)
+        {
+            log.Report(TestLine.Dim("   Показания карты за время сцены не получены — судить не по чему."));
+            return;
+        }
+
+        int maxClock = info?.MaxGraphicsClockMhz ?? 0;
+        double clockRatio = maxClock > 0 && !double.IsNaN(seen.MedianClockMhz)
+            ? seen.MedianClockMhz / maxClock
+            : double.NaN;
+        double powerRatio = seen.PowerLimitWatts > 0 && !double.IsNaN(seen.MedianPowerWatts)
+            ? seen.MedianPowerWatts / seen.PowerLimitWatts
+            : double.NaN;
+
+        if (!double.IsNaN(seen.MedianClockMhz))
+            log.Report(TestLine.Info(Fmt.Row("Частота ядра",
+                maxClock > 0
+                    ? $"{seen.MedianClockMhz:F0} МГц из {maxClock} предельных ({clockRatio * 100:F0}%)"
+                    : $"{seen.MedianClockMhz:F0} МГц")));
+
+        if (!double.IsNaN(seen.MedianPowerWatts))
+            log.Report(TestLine.Info(Fmt.Row("Мощность",
+                seen.PowerLimitWatts > 0
+                    ? $"{seen.MedianPowerWatts:F0} Вт из {seen.PowerLimitWatts:F0} ({powerRatio * 100:F0}% лимита)"
+                    : $"{seen.MedianPowerWatts:F0} Вт")));
+
+        bool idle    = (seen.DominantReason & NvidiaLiveSample.ReasonIdle) != 0;
+        bool power   = (seen.DominantReason & NvidiaLiveSample.ReasonSoftwarePowerCap) != 0;
+        bool thermal = (seen.DominantReason & (NvidiaLiveSample.ReasonSoftwareThermal | NvidiaLiveSample.ReasonHardwareThermal)) != 0;
+        bool brake   = (seen.DominantReason & (NvidiaLiveSample.ReasonHardwarePowerBrake | NvidiaLiveSample.ReasonHardwareSlowdown)) != 0;
+
+        if (seen.DominantReason >= 0)
+            log.Report(TestLine.Info(Fmt.Row("Что держит частоту", ReasonText(seen.DominantReason))));
+
+        // Низкая частота при далёкой от лимита мощности и без троттлинга — карта
+        // не хочет, а не не может. С маской «Idle» под полной загрузкой это
+        // режим питания драйвера почти наверняка
+        bool clamped = !double.IsNaN(clockRatio) && clockRatio < ClockRatioLow
+                    && !double.IsNaN(powerRatio) && powerRatio < PowerRatioLow
+                    && !thermal && !brake;
+
+        if (brake)
+        {
+            log.Report(TestLine.Bad(Fmt.Row("Вердикт", "аварийное ограничение по питанию")));
+            log.Report(TestLine.Warn("   Карта сама сбрасывает частоту по сигналу от цепи питания. Проверить"));
+            log.Report(TestLine.Warn("   блок питания, кабели к карте (два отдельных, без переходников) и её VRM."));
+        }
+        else if (thermal)
+        {
+            log.Report(TestLine.Warn(Fmt.Row("Вердикт", "ограничена температурой")));
+            log.Report(TestLine.Warn("   Частота снижена из-за нагрева. Смотреть блок температур ниже:"));
+            log.Report(TestLine.Warn("   если горячая точка далеко от ядра — термопаста, если память — прокладки."));
+        }
+        else if (clamped)
+        {
+            log.Report(TestLine.Warn(Fmt.Row("Вердикт", idle
+                ? "зажата режимом питания драйвера"
+                : "частота ниже ожидаемой без явной причины")));
+            log.Report(TestLine.Warn("   Карта не упирается ни в мощность, ни в температуру, но и не разгоняется."));
+            log.Report(TestLine.Warn("   Самая частая причина — «Оптимальное энергопотребление» в панели NVIDIA:"));
+            log.Report(TestLine.Warn("   это умолчание драйвера, оно переживает переустановку Windows и на некоторых"));
+            log.Report(TestLine.Warn("   картах режет треть производительности. Панель управления NVIDIA →"));
+            log.Report(TestLine.Warn("   Управление параметрами 3D → Режим управления электропитанием →"));
+            log.Report(TestLine.Warn("   «Предпочтителен режим максимальной производительности», затем повторить замер."));
+        }
+        else if (power)
+        {
+            log.Report(TestLine.Good(Fmt.Row("Вердикт", "упирается в лимит мощности — штатно")));
+        }
+        else
+        {
+            log.Report(TestLine.Good(Fmt.Row("Вердикт", "работает в полную силу")));
+        }
+    }
+
+    /// <summary>Маска причин → слова. Несколько битов сразу — через запятую.</summary>
+    private static string ReasonText(long mask)
+    {
+        if (mask == 0) return "ничего — карта на свободном ходу";
+
+        var parts = new List<string>();
+        if ((mask & NvidiaLiveSample.ReasonSoftwarePowerCap) != 0)   parts.Add("лимит мощности");
+        if ((mask & NvidiaLiveSample.ReasonSoftwareThermal) != 0)    parts.Add("температура (программно)");
+        if ((mask & NvidiaLiveSample.ReasonHardwareThermal) != 0)    parts.Add("температура (аппаратно)");
+        if ((mask & NvidiaLiveSample.ReasonHardwarePowerBrake) != 0) parts.Add("аварийный сигнал питания");
+        if ((mask & NvidiaLiveSample.ReasonHardwareSlowdown) != 0)   parts.Add("аппаратное замедление");
+        if ((mask & NvidiaLiveSample.ReasonApplicationsClocks) != 0) parts.Add("заданные частоты приложения");
+        if ((mask & NvidiaLiveSample.ReasonSyncBoost) != 0)          parts.Add("синхронный буст");
+        if ((mask & NvidiaLiveSample.ReasonIdle) != 0)               parts.Add("«простой» — при полной загрузке это режим питания драйвера");
+
+        return parts.Count > 0 ? string.Join(", ", parts) : $"неизвестная причина 0x{mask:X}";
     }
 
     /// <summary>
