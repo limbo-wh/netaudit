@@ -863,9 +863,20 @@
                             <Button Content="Процессор, память, диск" Click="OnTestHardware"
                                     Style="{StaticResource TestBtn}"
                                     ToolTip="Скорость всех трёх плюс проверка на троттлинг под длительной нагрузкой. Около минуты, система загружена полностью."/>
-                            <Button Content="Только процессор" Click="OnTestCpu"
+                            <TextBlock Text="ПРОЦЕССОР" Style="{StaticResource TestGroup}"/>
+
+                            <Button Content="▶  Полная диагностика ЦП" Click="OnCpuFullDiagnostic"
+                                    Style="{StaticResource TestBtnPrimary}"
+                                    ToolTip="Модель, поколение, ядра и кэши, что мешает работать в полную силу, следы сбоев по процессору в журналах Windows, скорость одного ядра и всех сразу, частота в бусте и проверка на троттлинг. Около минуты, процессор загружен полностью."/>
+                            <Button Content="Паспорт и состояние" Click="OnCpuPassport"
                                     Style="{StaticResource TestBtn}"
-                                    ToolTip="Одно ядро, все ядра и падение производительности за время нагрузки."/>
+                                    ToolTip="Модель, поколение, ядра, кэши по уровням, наборы инструкций, микрокод. Текущая частота и загрузка, схема питания, гипервизор и защита на виртуализации. Мгновенно, без нагрузки."/>
+                            <Button Content="Замеры скорости" Click="OnCpuBenchmark"
+                                    Style="{StaticResource TestBtn}"
+                                    ToolTip="Целые числа, плавающая точка через FMA, шифрование AES, прирост по числу потоков, частота на одном ядре против всех и падение скорости за время длительной нагрузки."/>
+                            <Button Content="Задержки между ядрами" Click="OnCpuCoreLatency"
+                                    Style="{StaticResource TestBtn}"
+                                    ToolTip="Сколько наносекунд стоит передать значение от одного ядра другому. Показывает устройство процессора: у AMD видно кластеры ядер, обмен между которыми в разы дороже, чем внутри."/>
 
                             <TextBlock Text="ВИДЕОКАРТА" Style="{StaticResource TestGroup}"/>
 

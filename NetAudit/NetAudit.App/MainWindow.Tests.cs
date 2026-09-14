@@ -50,7 +50,35 @@ public partial class MainWindow
     private async void OnTestDns(object s, RoutedEventArgs e)     => await RunAsync(new DnsTest());
     private async void OnTestMtu(object s, RoutedEventArgs e)     => await RunAsync(new MtuTest());
     private async void OnTestHardware(object s, RoutedEventArgs e) => await RunAsync(new SystemBenchTest());
-    private async void OnTestCpu(object s, RoutedEventArgs e)     => await RunAsync(new SystemBenchTest(BenchParts.Cpu));
+
+    // ── Процессор ─────────────────────────────────────────────────────────
+
+    /// <summary>Всё, кроме задержек между ядрами: они добавляют полминуты ради узкой темы.</summary>
+    private async void OnCpuFullDiagnostic(object sender, RoutedEventArgs e)
+    {
+        BottomTabs.SelectedItem = TestTab;
+        await RunAsync(new CpuDiagnosticTest());
+    }
+
+    /// <summary>Только чтение: что за процессор, как настроен и что ему мешает.</summary>
+    private async void OnCpuPassport(object sender, RoutedEventArgs e)
+    {
+        BottomTabs.SelectedItem = TestTab;
+        await RunAsync(new CpuDiagnosticTest(
+            CpuDiagnosticParts.Passport | CpuDiagnosticParts.State | CpuDiagnosticParts.Health));
+    }
+
+    private async void OnCpuBenchmark(object sender, RoutedEventArgs e)
+    {
+        BottomTabs.SelectedItem = TestTab;
+        await RunAsync(new CpuBenchmark());
+    }
+
+    private async void OnCpuCoreLatency(object sender, RoutedEventArgs e)
+    {
+        BottomTabs.SelectedItem = TestTab;
+        await RunAsync(new CoreLatencyTest());
+    }
 
     // ── Видеокарта ────────────────────────────────────────────────────────
 
