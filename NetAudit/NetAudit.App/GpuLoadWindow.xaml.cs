@@ -144,8 +144,18 @@ public partial class GpuLoadWindow : Window
             // Счётчик Windows занижает загрузку на коротких кадрах, но для карт
             // без nvidia-smi другого источника нет
             try { LoadVal.Text = $"{_gpu.Sample():F0}%"; } catch { }
-            try { (_, temperature) = _temp.Sample(); } catch { }
         }
+
+        // nvidia-smi отдаёт только температуру ядра — самую холодную из трёх.
+        // Горячая точка и память идут на 10–30 °C выше и доступны через NVAPI,
+        // а следить нужно именно за ними: от них карта и виснет
+        try
+        {
+            var (_, hottest) = _temp.Sample();
+            if (!double.IsNaN(hottest) && (double.IsNaN(temperature) || hottest > temperature))
+                temperature = hottest;
+        }
+        catch { }
 
         ShowTemperature(temperature);
     }
@@ -153,9 +163,10 @@ public partial class GpuLoadWindow : Window
     /// <summary>
     /// Порог аварийной остановки нагрузки. Прежние 90 °C обрывали работу почти
     /// сразу на картах, отдающих температуру горячей точки: у многих Radeon и у
-    /// RTX 30 с памятью GDDR6X 90–100 °C — рабочая норма, а не авария. Какой
-    /// датчик попадёт в показания, решает сама карта, поэтому порог поднят к
-    /// верхней границе безопасного диапазона.
+    /// RTX 30 с памятью GDDR6X 90–100 °C — рабочая норма, а не авария.
+    ///
+    /// Следим по самому горячему датчику карты, а не по ядру: ядро остаётся
+    /// холодным, когда перегревается память, — именно так карта и виснет молча.
     /// </summary>
     private const double StopTemperatureC = 97;
 
@@ -165,7 +176,9 @@ public partial class GpuLoadWindow : Window
         {
             TempVal.Text = "—";
             TempVal.Foreground = new SolidColorBrush(Color.FromRgb(0x5C, 0x7A, 0x69));
-            TempVal.ToolTip = "Датчик недоступен: нужны права администратора.";
+            TempVal.ToolTip = _temp.Unavailable.Length > 0
+                ? $"Датчик недоступен: {_temp.Unavailable}."
+                : "Датчик температуры видеокарты не отвечает.";
             return;
         }
 
@@ -180,10 +193,10 @@ public partial class GpuLoadWindow : Window
         if (gpuTemp >= StopTemperatureC && !_stopped)
         {
             StopLoad();
-            HintText.Text = $"Остановлено: датчик видеокарты показал {gpuTemp:F0} °C " +
-                            $"(порог {StopTemperatureC:F0} °C). Какой это датчик — ядро или " +
-                            "горячая точка — зависит от модели карты, поэтому нормальные " +
-                            "значения у разных карт разные.";
+            HintText.Text = $"Остановлено: самый горячий датчик видеокарты показал {gpuTemp:F0} °C " +
+                            $"(порог {StopTemperatureC:F0} °C). Это может быть ядро, горячая точка " +
+                            "кристалла или память — разбивка по датчикам есть в полной диагностике " +
+                            "видеокарты.";
             HintText.Foreground = new SolidColorBrush(Color.FromRgb(0xEE, 0x8B, 0x8B));
         }
     }

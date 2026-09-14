@@ -53,6 +53,18 @@ public sealed class StressMonitor
 
     public bool TemperatureAvailable { get; private set; }
 
+    /// <summary>
+    /// Датчики процессора и видеокарты живут раздельно: процессору нужен драйвер ядра,
+    /// а видеокарту NVIDIA библиотека читает через NVAPI. Заблокированный драйвер
+    /// оставляет без температуры только процессор.
+    /// </summary>
+    public bool CpuTemperatureAvailable { get; private set; }
+
+    public bool GpuTemperatureAvailable { get; private set; }
+
+    /// <summary>Почему датчиков нет — человеческим языком. Пусто, если всё в порядке.</summary>
+    public string TemperatureProblem { get; private set; } = "";
+
     public StressSample Current
     {
         get { lock (_gate) return _current; }
@@ -65,6 +77,9 @@ public sealed class StressMonitor
         try { _sys.Sample(); } catch { }   // первый замер счётчика CPU всегда нулевой — засеваем заранее
 
         TemperatureAvailable = _temp.Available;
+        CpuTemperatureAvailable = _temp.CpuAvailable;
+        GpuTemperatureAvailable = _temp.GpuAvailable;
+        TemperatureProblem = _temp.Unavailable;
     }
 
     public void Start(CancellationToken ct, Func<long>? counterSource = null)

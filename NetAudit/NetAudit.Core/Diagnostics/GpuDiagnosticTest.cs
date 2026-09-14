@@ -47,6 +47,7 @@ public sealed class GpuDiagnosticTest(GpuDiagnosticParts parts = GpuDiagnosticPa
         if (parts.HasFlag(GpuDiagnosticParts.Health))
         {
             ReportHealth(log, info, ct);
+            ReportTemperatures(log, underLoad: false);
         }
 
         if (parts.HasFlag(GpuDiagnosticParts.Benchmark))
@@ -96,6 +97,18 @@ public sealed class GpuDiagnosticTest(GpuDiagnosticParts parts = GpuDiagnosticPa
             log.Report(TestLine.Dim(new string('─', 72)));
             await new GpuMemoryTest(passes: 1).RunAsync(log, ct).ConfigureAwait(false);
             log.Report(TestLine.Empty);
+        }
+
+        // Температуры сразу после нагрузки: в покое разрыв между ядром и горячей
+        // точкой ещё мал и о состоянии термоинтерфейса не говорит ничего
+        bool wasLoaded = parts.HasFlag(GpuDiagnosticParts.Benchmark)
+                      || parts.HasFlag(GpuDiagnosticParts.Game)
+                      || parts.HasFlag(GpuDiagnosticParts.Memory);
+
+        if (wasLoaded && parts.HasFlag(GpuDiagnosticParts.Health))
+        {
+            log.Report(TestLine.Dim(new string('─', 72)));
+            ReportTemperatures(log, underLoad: true);
         }
 
         // Выводы имеют смысл только при замерах: без них это две строки «данных нет»,
@@ -223,6 +236,92 @@ public sealed class GpuDiagnosticTest(GpuDiagnosticParts parts = GpuDiagnosticPa
 
         log.Report(TestLine.Empty);
     }
+
+    /// <summary>
+    /// Температуры видеокарты по всем датчикам, а не только по ядру.
+    ///
+    /// Зачем отдельным блоком. Ядро — самый холодный датчик карты, и именно его
+    /// показывают <c>nvidia-smi</c> и большинство мониторингов. Горячая точка
+    /// кристалла и память идут на 10–30 °C выше, а аварийная защита следит за ядром
+    /// и потому молчит. Классический симптом перегретой памяти — чёрный экран
+    /// с вентиляторами на максимум под долгой игровой нагрузкой при совершенно
+    /// спокойных цифрах в мониторинге.
+    /// </summary>
+    private static void ReportTemperatures(IProgress<TestLine> log, bool underLoad)
+    {
+        using var probe = new TemperatureProbe();
+        probe.Initialize();
+
+        var t = probe.SampleGpu();
+
+        log.Report(TestLine.Head(underLoad ? "Температуры после нагрузки" : "Температуры в покое"));
+
+        if (!t.Any)
+        {
+            log.Report(TestLine.Warn(Fmt.Row("Датчики видеокарты", "недоступны")));
+
+            if (probe.Unavailable.Length > 0)
+                log.Report(TestLine.Dim($"   {probe.Unavailable}."));
+
+            log.Report(TestLine.Empty);
+            return;
+        }
+
+        if (!double.IsNaN(t.CoreC))
+            log.Report(new TestLine(
+                Fmt.Row("Ядро", $"{t.CoreC:F0} °C"),
+                Level(t.CoreC, ThermalLimits.GpuComfortableC, ThermalLimits.GpuWarnC)));
+
+        if (!double.IsNaN(t.HotSpotC))
+            log.Report(new TestLine(
+                Fmt.Row("Горячая точка", $"{t.HotSpotC:F0} °C"),
+                Level(t.HotSpotC, ThermalLimits.GpuComfortableC + 15, ThermalLimits.GpuWarnC + 10)));
+
+        if (!double.IsNaN(t.MemoryC))
+            log.Report(new TestLine(
+                Fmt.Row("Память", $"{t.MemoryC:F0} °C"),
+                Level(t.MemoryC, ThermalLimits.GpuMemoryWarnC - 10, ThermalLimits.GpuMemoryWarnC)));
+
+        double delta = t.HotSpotDeltaC;
+
+        if (!double.IsNaN(delta))
+        {
+            // В покое разрыв мал у любой карты, даже у запущенной, — судить по нему нельзя
+            bool bad = underLoad && delta >= ThermalLimits.GpuHotSpotDeltaWarnC;
+
+            log.Report(new TestLine(
+                Fmt.Row("Разрыв с ядром", $"{delta:F0} °C"),
+                bad ? TestLevel.Warn : TestLevel.Info));
+
+            if (bad)
+            {
+                log.Report(TestLine.Warn("   Больше 25 °C под нагрузкой — термопаста под кристаллом высохла"));
+                log.Report(TestLine.Warn("   или прижим неравномерный. Обычное дело для карт, которые"));
+                log.Report(TestLine.Warn("   несколько лет не разбирали. Лечится заменой термоинтерфейса."));
+            }
+        }
+
+        if (!double.IsNaN(t.MemoryC) && t.MemoryC >= ThermalLimits.GpuMemoryWarnC)
+        {
+            log.Report(TestLine.Warn("   Память подошла к пределу: у GDDR6 это 105 °C, после чего карта"));
+            log.Report(TestLine.Warn("   сбрасывает частоты или виснет. Виснет она молча — аварийная защита"));
+            log.Report(TestLine.Warn("   следит за ядром, а оно в этот момент холодное. Менять термопрокладки."));
+        }
+
+        if (!underLoad)
+            log.Report(TestLine.Dim("   Это покой. Разрыв между ядром и горячей точкой имеет смысл"));
+
+        if (!underLoad)
+            log.Report(TestLine.Dim("   смотреть под нагрузкой — он будет ниже по отчёту."));
+
+        log.Report(TestLine.Empty);
+    }
+
+    /// <summary>Уровень строки по двум порогам: до первого — хорошо, после второго — плохо.</summary>
+    private static TestLevel Level(double value, double good, double warn) =>
+        value >= warn ? TestLevel.Bad
+      : value >= good ? TestLevel.Warn
+      : TestLevel.Good;
 
     /// <summary>
     /// Русское склонение после числа: 21 раз, 22 раза, 25 раз. Без этого в отчёте
