@@ -1,3 +1,4 @@
+﻿using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Media;
@@ -24,6 +25,20 @@ public partial class App : Application
             Shutdown();
             return;
         }
+
+        // Любая задача Планировщика заданий по умолчанию запускает процесс
+        // с приоритетом «ниже обычного» (Priority 7 в её XML) — так стартует
+        // и установленная копия NetAudit. Под полной нагрузкой процессора такой
+        // процесс вытесняется: чёрный ящик молчал по 6–29 секунд и пропускал
+        // момент сбоя. Новые задачи создаются с обычным приоритетом,
+        // а для уже созданных поправляем себя сами
+        try
+        {
+            using var self = Process.GetCurrentProcess();
+            if (self.PriorityClass is ProcessPriorityClass.BelowNormal or ProcessPriorityClass.Idle)
+                self.PriorityClass = ProcessPriorityClass.Normal;
+        }
+        catch { }
 
         DispatcherUnhandledException += OnDispatcherException;
 

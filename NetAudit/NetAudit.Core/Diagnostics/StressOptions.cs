@@ -1,4 +1,4 @@
-namespace NetAudit.Core.Diagnostics;
+﻿namespace NetAudit.Core.Diagnostics;
 
 /// <summary>Что и как долго мучить.</summary>
 public sealed record StressOptions
@@ -51,6 +51,18 @@ public sealed record StressOptions
 
     /// <summary>Сколько потоков грузить. 0 — по числу логических ядер.</summary>
     public int Threads { get; init; }
+
+    /// <summary>
+    /// Какую долю процессора занимать, 0,5–1,0. Единица — все логические ядра
+    /// под завязку: так тест выжимает максимум, но машина перестаёт отзываться
+    /// настолько, что не получается даже набрать текст.
+    ///
+    /// Значение меньше единицы оставляет часть ядер свободными: при 0,95 на
+    /// двенадцати потоках грузится одиннадцать, и интерфейс остаётся живым.
+    /// Для поиска нестабильности этого достаточно — сбой под нагрузкой
+    /// воспроизводится и при одном свободном ядре.
+    /// </summary>
+    public double CpuLoad { get; init; } = 1.0;
 
     public static StressOptions Quick => new()
     {

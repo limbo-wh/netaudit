@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using NetAudit.Core.Logging;
@@ -63,14 +63,24 @@ public sealed class StressTest(
     {
         log.Report(TestLine.Head($"Стресс-тест: {options.Describe()}"));
         log.Report(TestLine.Empty);
-        log.Report(TestLine.Warn("Система будет загружена полностью. Закройте игры и тяжёлые программы."));
-        log.Report(TestLine.Dim("Окно NetAudit может подтормаживать — это ожидаемо, тест занимает все ядра."));
+        log.Report(TestLine.Warn("Система будет загружена. Закройте игры и тяжёлые программы."));
+        log.Report(TestLine.Dim(options.CpuLoad >= 1.0
+            ? "Окно NetAudit может подтормаживать — это ожидаемо, тест занимает все ядра."
+            : "Часть ядер оставлена системе — интерфейс должен остаться отзывчивым."));
         log.Report(TestLine.Dim("Прервать можно в любой момент кнопкой «Остановить»."));
         log.Report(TestLine.Empty);
 
-        int threads = options.Threads > 0 ? options.Threads : Environment.ProcessorCount;
+        int cores = Environment.ProcessorCount;
+        // Доля загрузки: округляем вниз, но не ниже одного потока. 0,95 на
+        // двенадцати ядрах даёт одиннадцать — одно остаётся системе
+        int wanted = options.CpuLoad >= 1.0
+            ? cores
+            : Math.Max(1, (int)Math.Floor(cores * Math.Clamp(options.CpuLoad, 0.1, 1.0)));
+        int threads = options.Threads > 0 ? options.Threads : wanted;
 
-        log.Report(TestLine.Info(Fmt.Row("Потоков нагрузки", $"{threads}")));
+        log.Report(TestLine.Info(Fmt.Row("Потоков нагрузки", threads < cores
+            ? $"{threads} из {cores} (свободно {cores - threads})"
+            : $"{threads}")));
         log.Report(TestLine.Info(Fmt.Row("Порог остановки CPU", $"{options.CpuTempLimitC} °C")));
         log.Report(TestLine.Info(Fmt.Row("Порог остановки GPU", $"{options.GpuTempLimitC} °C")));
 
@@ -279,6 +289,11 @@ public sealed class StressTest(
         {
             Name = $"NetAudit-stress-{name}",
             IsBackground = true,
+            // Ниже обычного: под полной нагрузкой планировщик Windows иначе
+            // вытесняет интерфейс и фоновые задачи, и машина перестаёт отвечать.
+            // На саму нагрузку это не влияет — свободных ядер всё равно нет,
+            // но система получает своё время, когда оно ей нужно
+            Priority = ThreadPriority.BelowNormal,
         };
         t.Start();
         return t;

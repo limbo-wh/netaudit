@@ -1,4 +1,4 @@
-# Регистрирует задачу в Планировщике заданий для запуска NetAudit с правами
+﻿# Регистрирует задачу в Планировщике заданий для запуска NetAudit с правами
 # администратора без запроса UAC при каждом старте.
 #
 # Механизм: связка RunLevel=Highest + LogonType=Interactive. Задачу создаёт
@@ -41,8 +41,12 @@ try {
                  else            { New-ScheduledTaskAction -Execute $ExePath }
     $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" `
                                             -RunLevel Highest -LogonType Interactive
+    # Priority 4 — обычный приоритет процесса. Умолчание задачи — 7, «ниже
+    # обычного»: под полной нагрузкой процессора такой процесс вытесняется, и
+    # посекундная запись состояния (чёрный ящик) проваливается на десятки секунд
     $settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-                                              -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero)
+                                              -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero) `
+                                              -Priority 4
 
     Register-ScheduledTask -TaskName $TaskName -Action $action -Principal $principal `
                            -Settings $settings -Force | Out-Null

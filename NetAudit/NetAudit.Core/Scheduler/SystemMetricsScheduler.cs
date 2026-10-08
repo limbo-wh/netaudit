@@ -1,4 +1,4 @@
-using NetAudit.Core.Models;
+﻿using NetAudit.Core.Models;
 using NetAudit.Core.Probes;
 
 namespace NetAudit.Core.Scheduler;
@@ -19,11 +19,47 @@ public sealed class SystemMetricsScheduler : IAsyncDisposable
     // остаётся счётчик
     private readonly NvidiaLiveProbe         _nvidia     = new();
     private readonly CancellationTokenSource _cts        = new();
-    private Task? _metricsTask;
+    private Thread? _metricsThread;
     private Task? _wifiTask;
 
     public event Action<SystemSnapshot>? SnapshotReady;
     public event Action<WifiInfo?>?      WifiReady;
+
+    /// <summary>
+    /// Тик занял заметно дольше секунды — с разбивкой, кто из проб виноват.
+    /// Нужно ради чёрного ящика: под стресс-тестом процессора запись шла
+    /// с провалами по 6–19 секунд, и момент сбоя в файл не попадал. Событие
+    /// даёт увидеть причину прямо в журнале, без отладчика на живой машине.
+    /// </summary>
+    public event Action<string>? SlowTick;
+
+    /// <summary>
+    /// nvidia-smi отдавал показания и перестал (true), либо снова отдаёт (false).
+    /// Это и есть картина «карта отвалилась с шины при живом процессоре»:
+    /// загрузка карты за секунду падает со 100% до нуля, температура застывает
+    /// на одном значении, а остальная система продолжает работать. Без пометки
+    /// такой хвост читается как
+    /// «всё было спокойно» — момент срыва виден только по косвенным признакам.
+    /// </summary>
+    public event Action<bool>? GpuSilent;
+
+    private bool _gpuWasLive;
+    private bool _gpuSilentReported;
+
+    /// <summary>Порог, после которого тик считается медленным.</summary>
+    private static readonly TimeSpan SlowTickLimit = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// Пропуск дольше этого — машина спала, а не тормозила. Во сне поток замеров
+    /// стоит вместе со всей системой, а видеокарта обесточена: после пробуждения
+    /// первый же тик выглядит как «датчики висели девять часов, карта не
+    /// отвечает» — ложная тревога о срыве карты там, где компьютер просто
+    /// был в спящем режиме.
+    ///
+    /// Полминуты: настоящая задержка от нагрузки дальше единиц секунд не уходила
+    /// даже когда поток замеров вытеснялся полностью.
+    /// </summary>
+    private static readonly TimeSpan SleepGap = TimeSpan.FromSeconds(30);
 
     private static readonly TimeSpan MetricsFast = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan MetricsSlow = TimeSpan.FromSeconds(2);
@@ -69,55 +105,107 @@ public sealed class SystemMetricsScheduler : IAsyncDisposable
         _speedProbe.Sample();
         _sysProbe.Sample();
 
-        _metricsTask = RunMetricsAsync(_cts.Token);
-        _wifiTask    = RunWifiAsync(_cts.Token);
+        // Замеры идут на собственном потоке с высоким приоритетом, а не на пуле
+        // через PeriodicTimer. Причина — чёрный ящик: под стресс-тестом процессора
+        // (двенадцать потоков на 100%) посекундная запись проваливалась на 6–29
+        // секунд, и момент сбоя в файл не попадал. Замер показал:
+        // проба скорости сети «занимала» 16 секунд, проба системы — 5, хотя это
+        // два вызова kernel32. Поток просто не получал процессорного времени:
+        // приложение, поднятое задачей Планировщика, живёт с приоритетом «ниже
+        // обычного». Highest даёт потоку +2 к базе процесса — этого хватает, чтобы
+        // раз в секунду отобрать сто миллисекунд у любой нагрузки, включая игру
+        _metricsThread = new Thread(() => RunMetrics(_cts.Token))
+        {
+            Name = "NetAudit-metrics",
+            IsBackground = true,
+            Priority = ThreadPriority.Highest,
+        };
+        _metricsThread.Start();
+        _wifiTask = RunWifiAsync(_cts.Token);
     }
 
-    private async Task RunMetricsAsync(CancellationToken ct)
+    private void RunMetrics(CancellationToken ct)
     {
         bool gpuReady = false;
         bool tempReady = false;
         bool nvidiaReady = false;
         bool nvidiaLive = false;
-        using var timer = new PeriodicTimer(MetricsFast);
-        while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
+
+        // Тики по расписанию, а не «период после окончания работы»: иначе секунда
+        // растягивалась бы на секунду с хвостиком и метки времени плыли
+        var due = DateTime.UtcNow + MetricsFast;
+        var lastTickAt = DateTime.UtcNow;
+        while (!ct.IsCancellationRequested)
         {
+            var wait = due - DateTime.UtcNow;
+            if (wait > TimeSpan.Zero && ct.WaitHandle.WaitOne(wait)) break;
+            var period = _slowMode ? MetricsSlow : MetricsFast;
+            var now = DateTime.UtcNow;
+
+            // Разрыв в разы больше периода — компьютер спал. Такой тик не годится
+            // ни для жалобы на медлительность, ни для вывода «карта пропала»
+            bool afterSleep = now - lastTickAt > SleepGap;
+            lastTickAt = now;
+            due = now + period;
+
             try
             {
-                var wanted = _slowMode ? MetricsSlow : MetricsFast;
-                if (timer.Period != wanted) timer.Period = wanted;
-
-                // Инициализируем GPU-счётчики и датчики температуры в фоне при первом тике
+                // Счётчики GPU, датчики и nvidia-smi поднимаются на первом тике.
+                // Это долгие вызовы, но поток свой — никого не задерживают
                 if (!gpuReady)
                 {
-                    await Task.Run(_gpuProbe.Initialize, ct).ConfigureAwait(false);
+                    _gpuProbe.Initialize();
                     gpuReady = true;
                 }
                 if (!tempReady)
                 {
-                    await Task.Run(_tempProbe.Initialize, ct).ConfigureAwait(false);
+                    _tempProbe.Initialize();
                     tempReady = true;
                 }
                 if (!nvidiaReady)
                 {
-                    nvidiaLive = await Task.Run(
-                        () => NvidiaLiveProbe.IsPresent && _nvidia.Start(), ct).ConfigureAwait(false);
+                    nvidiaLive = NvidiaLiveProbe.IsPresent && _nvidia.Start();
                     nvidiaReady = true;
                 }
 
+                var tick = System.Diagnostics.Stopwatch.StartNew();
+                long tSpeed, tSys, tGpu, tTemp, tSplit, tFps, tHandlers;
+
                 var (rx, tx)              = _speedProbe.Sample();
+                tSpeed = tick.ElapsedMilliseconds;
                 var (cpu, ramUsed, total) = _sysProbe.Sample();
                 var (bat, charging, _)    = _sysProbe.GetBattery();
+                tSys = tick.ElapsedMilliseconds;
                 float gpu                 = _gpuProbe.Sample();
+                tGpu = tick.ElapsedMilliseconds;
                 var (cpuTemp, gpuTemp)    = _tempProbe.Sample();
+                tTemp = tick.ElapsedMilliseconds;
 
                 var nv = nvidiaLive ? _nvidia.Last : NvidiaLiveSample.Empty;
                 if (nv.HasData) gpu = (float)nv.Utilization;
+
+                // Пустой ответ после живых показаний — карта или её драйвер замолчали.
+                // Пустота с самого старта не считается: nvidia-smi ещё поднимается
+                if (nv.HasData)
+                {
+                    _gpuWasLive = true;
+                    if (_gpuSilentReported)
+                    {
+                        _gpuSilentReported = false;
+                        GpuSilent?.Invoke(false);
+                    }
+                }
+                else if (_gpuWasLive && !_gpuSilentReported && !afterSleep)
+                {
+                    _gpuSilentReported = true;
+                    GpuSilent?.Invoke(true);
+                }
 
                 // Разбивка по датчикам — для строки «ядро/горячая точка» в оверлее.
                 // Без прав администратора датчиков через драйвер нет, но nvidia-smi
                 // отдаёт ядро и так — лучше одна честная цифра, чем прочерк
                 var split = _tempProbe.SampleGpu();
+                tSplit = tick.ElapsedMilliseconds;
                 double gpuCore = split.CoreC;
                 double gpuHot  = split.HotSpotC;
                 if (double.IsNaN(gpuCore) && !double.IsNaN(nv.TemperatureC)) gpuCore = nv.TemperatureC;
@@ -127,10 +215,22 @@ public sealed class SystemMetricsScheduler : IAsyncDisposable
                 double fps = _fpsProbe.Available
                     ? _fpsProbe.Sample(GameMode.GameModeDetector.ForegroundPid())
                     : double.NaN;
+                tFps = tick.ElapsedMilliseconds;
 
                 SnapshotReady?.Invoke(new SystemSnapshot(
                     rx, tx, cpu, gpu, ramUsed, total, bat, charging, DateTimeOffset.UtcNow,
-                    fps, cpuTemp, gpuTemp, gpuCore, gpuHot));
+                    fps, cpuTemp, gpuTemp, gpuCore, gpuHot,
+                    nv.PowerWatts, nv.ClockMhz, nv.PowerLimitWatts));
+                tHandlers = tick.ElapsedMilliseconds;
+
+                if (tick.Elapsed > SlowTickLimit && !afterSleep)
+                {
+                    SlowTick?.Invoke(
+                        $"тик {tHandlers} мс: сеть {tSpeed}, система {tSys - tSpeed}, " +
+                        $"счётчик GPU {tGpu - tSys}, датчики {tTemp - tGpu}, " +
+                        $"датчики GPU {tSplit - tTemp}, кадры {tFps - tSplit}, " +
+                        $"обработчики {tHandlers - tFps}");
+                }
             }
             catch { }
         }
@@ -153,8 +253,11 @@ public sealed class SystemMetricsScheduler : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await _cts.CancelAsync();
-        var tasks = new[] { _metricsTask, _wifiTask }.OfType<Task>();
-        await Task.WhenAll(tasks).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        if (_wifiTask is not null)
+            await _wifiTask.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        var thread = _metricsThread;
+        if (thread is not null)
+            await Task.Run(() => thread.Join(TimeSpan.FromSeconds(3))).ConfigureAwait(false);
         _gpuProbe.Dispose();
         _fpsProbe.Dispose();
         _tempProbe.Dispose();

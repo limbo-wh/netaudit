@@ -54,6 +54,8 @@ public partial class OverlayWindow : Window
         ["Gpu"]     = RowGpu,
         ["CpuTemp"] = RowCpuTemp,
         ["GpuTemp"] = RowGpuTemp,
+        ["GpuClock"] = RowGpuClock,
+        ["GpuPower"] = RowGpuPower,
         ["Ram"]     = RowRam,
         ["NetRx"]   = RowRx,
         ["NetTx"]   = RowTx,
@@ -212,7 +214,8 @@ public partial class OverlayWindow : Window
                      double rxMBps, double txMBps,
                      bool gatewayKnown, double? gwMs, double? cfMs,
                      double gwLossPct, double cfLossPct,
-                     double fps)
+                     double fps,
+                     double gpuWatts, double gpuLimitW, double gpuClockMhz)
     {
         Dispatcher.InvokeAsync(() =>
         {
@@ -227,6 +230,8 @@ public partial class OverlayWindow : Window
             // Пороги под типичный гейминг-режим: выше — троттлинг уже рядом
             ApplyTemp(OvCpuTemp, cpuTemp, warnAt: 70, badAt: 85);
             ApplyGpuTemp(gpuTemp, gpuCore, gpuHot);
+            ApplyGpuClock(gpuClockMhz);
+            ApplyGpuPower(gpuWatts, gpuLimitW);
 
             OvRam.Text = ramTotal > 0 ? $"{ramUsed:F1} / {ramTotal:F1} ГБ" : "—";
             double ramPct = ramTotal > 0 ? ramUsed / ramTotal * 100 : 0;
@@ -306,6 +311,57 @@ public partial class OverlayWindow : Window
         ApplyTemp(OvGpuTemp, hottest, warnAt: 75, badAt: 85);
     }
 
+    /// <summary>Частота ядра карты. Прочерк — nvidia-smi не отвечает или карта не NVIDIA.</summary>
+    private void ApplyGpuClock(double mhz)
+    {
+        if (double.IsNaN(mhz) || mhz <= 0)
+        {
+            OvGpuClock.Text = "—";
+            OvGpuClock.Foreground = BrushDim;
+            return;
+        }
+
+        OvGpuClock.Text = $"{mhz:F0} МГц";
+        OvGpuClock.Foreground = BrushGreen;
+    }
+
+    /// <summary>
+    /// Мощность карты и её предел. Показываются вместе, потому что по отдельности
+    /// ни то ни другое ничего не значит: 120 Вт — это середина диапазона для одной
+    /// карты и потолок для другой.
+    ///
+    /// Цвет по доле от предела. Красный означает не поломку, а «карта упёрлась в
+    /// ограничитель мощности»: частоты она держит не те, что могла бы, и виновата
+    /// в этом не игра, а предел. Это частая причина, по которой карта выдаёт меньше
+    /// кадров, чем от неё ждут, и по загрузке в процентах её не видно.
+    /// </summary>
+    private void ApplyGpuPower(double watts, double limitW)
+    {
+        if (double.IsNaN(watts) || watts <= 0)
+        {
+            OvGpuPower.Text = "—";
+            OvGpuPower.Foreground = BrushDim;
+            return;
+        }
+
+        bool haveLimit = !double.IsNaN(limitW) && limitW > 0;
+
+        OvGpuPower.Text = haveLimit
+            ? $"{watts:F0} / {limitW:F0} Вт"
+            : $"{watts:F0} Вт";
+
+        if (!haveLimit)
+        {
+            OvGpuPower.Foreground = BrushGreen;
+            return;
+        }
+
+        double share = watts / limitW;
+        OvGpuPower.Foreground = share < 0.90 ? BrushGreen
+                              : share < 0.97 ? BrushYellow
+                              : BrushRed;
+    }
+
     /// <summary>
     /// Температура CPU/GPU. Прочерк означает не «0°C», а «нет данных»: нужны права
     /// администратора для драйвера датчиков (см. TemperatureProbe) либо строка выключена.
@@ -347,6 +403,8 @@ public partial class OverlayWindow : Window
         SetRow(RowGpu,     s.OvShowGpu);
         SetRow(RowCpuTemp, s.OvShowCpuTemp);
         SetRow(RowGpuTemp, s.OvShowGpuTemp);
+        SetRow(RowGpuClock, s.OvShowGpuClock);
+        SetRow(RowGpuPower, s.OvShowGpuPower);
         SetRow(RowRam,     s.OvShowRam);
         SetRow(RowRx,     s.OvShowNetRx);
         SetRow(RowTx,     s.OvShowNetTx);

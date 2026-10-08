@@ -449,6 +449,20 @@ public partial class MainWindow : Window
 
             _sysScheduler = new SystemMetricsScheduler();
             _sysScheduler.SnapshotReady += OnSnapshot;
+            // Провал в посекундной записи — сам по себе улика: пометка объяснит,
+            // какая проба задержала тик, когда файл будут читать после сбоя
+            _sysScheduler.SlowTick += text => { try { _blackBox.Mark("медленный " + text); } catch { } };
+            _sysScheduler.GpuSilent += silent =>
+            {
+                try
+                {
+                    _blackBox.Mark(silent
+                        ? "ВИДЕОКАРТА НЕ ОТВЕЧАЕТ: nvidia-smi перестал отдавать показания — " +
+                          "если экран погас, карта отвалилась с шины при живом процессоре"
+                        : "видеокарта снова отвечает");
+                }
+                catch { }
+            };
             _sysScheduler.WifiReady     += OnWifi;
             // Сеанс ETW поднимается только если строка FPS включена — см. FpsProbe
             _sysScheduler.SetFpsEnabled(_settings.OvShowFps);
@@ -792,6 +806,30 @@ public partial class MainWindow : Window
 
                 StatCpu.Foreground = snap.CpuPercent < 60 ? BrushGreen
                                    : snap.CpuPercent < 85 ? BrushYellow : BrushRed;
+
+                // Частота и мощность карты. Прочерк — не ноль, а «нет данных»:
+                // читаются через nvidia-smi, и у карт AMD и Intel их не будет
+                StatGpuClock.Text = snap.GpuClockMhz > 0 ? $"{snap.GpuClockMhz:F0} МГц" : "—";
+
+                if (snap.GpuWatts > 0)
+                {
+                    bool haveLimit = snap.GpuPowerLimitW > 0;
+                    StatGpuPower.Text = haveLimit
+                        ? $"{snap.GpuWatts:F0} / {snap.GpuPowerLimitW:F0} Вт"
+                        : $"{snap.GpuWatts:F0} Вт";
+
+                    // Красный здесь значит «упёрлась в ограничитель мощности»,
+                    // а не «сломалась»: карта могла бы быстрее, но ей не дают
+                    double share = haveLimit ? snap.GpuWatts / snap.GpuPowerLimitW : 0;
+                    StatGpuPower.Foreground = !haveLimit ? BrushGreen
+                                            : share < 0.90 ? BrushGreen
+                                            : share < 0.97 ? BrushYellow : BrushRed;
+                }
+                else
+                {
+                    StatGpuPower.Text = "—";
+                    StatGpuPower.Foreground = BrushDim;
+                }
                 double ramPct = snap.RamTotalGb > 0 ? snap.RamUsedGb / snap.RamTotalGb * 100 : 0;
                 StatRam.Foreground = ramPct < 70 ? BrushGreen : ramPct < 90 ? BrushYellow : BrushRed;
             }
@@ -807,7 +845,8 @@ public partial class MainWindow : Window
                            snap.RxMBps, snap.TxMBps,
                            _gatewayKnown, _gwLastRtt, _cfLastRtt,
                            gwLoss, cfLoss,
-                           snap.Fps);
+                           snap.Fps,
+                           snap.GpuWatts, snap.GpuPowerLimitW, snap.GpuClockMhz);
 
             UpdateTrayTooltip();
 

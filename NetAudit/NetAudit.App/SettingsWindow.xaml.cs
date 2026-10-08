@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
@@ -402,6 +402,8 @@ public partial class SettingsWindow : Window
         "Gpu"     => _settings.OvShowGpu,
         "CpuTemp" => _settings.OvShowCpuTemp,
         "GpuTemp" => _settings.OvShowGpuTemp,
+        "GpuClock" => _settings.OvShowGpuClock,
+        "GpuPower" => _settings.OvShowGpuPower,
         "Ram"     => _settings.OvShowRam,
         "NetRx"   => _settings.OvShowNetRx,
         "NetTx"   => _settings.OvShowNetTx,
@@ -421,6 +423,8 @@ public partial class SettingsWindow : Window
             case "Gpu":     _settings.OvShowGpu     = visible; break;
             case "CpuTemp": _settings.OvShowCpuTemp = visible; break;
             case "GpuTemp": _settings.OvShowGpuTemp = visible; break;
+            case "GpuClock": _settings.OvShowGpuClock = visible; break;
+            case "GpuPower": _settings.OvShowGpuPower = visible; break;
             case "Ram":     _settings.OvShowRam     = visible; break;
             case "NetRx":   _settings.OvShowNetRx   = visible; break;
             case "NetTx":   _settings.OvShowNetTx   = visible; break;

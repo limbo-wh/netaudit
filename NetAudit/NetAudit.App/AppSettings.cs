@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text.Json;
 
 namespace NetAudit.App;
@@ -56,6 +56,9 @@ public sealed class AppSettings
     /// <summary>Температура CPU/GPU. Работает только с правами администратора — см. TemperatureProbe.</summary>
     public bool   OvShowCpuTemp  { get; set; } = true;
     public bool   OvShowGpuTemp  { get; set; } = true;
+    /// <summary>Частота и мощность карты. Читаются через nvidia-smi, прав не требуют.</summary>
+    public bool   OvShowGpuClock { get; set; } = false;
+    public bool   OvShowGpuPower { get; set; } = false;
     public bool   OvShowRam      { get; set; } = true;
     public bool   OvShowNetRx    { get; set; } = true;
     public bool   OvShowNetTx    { get; set; } = true;

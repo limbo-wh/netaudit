@@ -215,7 +215,8 @@ public static class ElevationService
                 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries `
                                                          -DontStopIfGoingOnBatteries `
                                                          -ExecutionTimeLimit ([TimeSpan]::Zero) `
-                                                         -MultipleInstances IgnoreNew
+                                                         -MultipleInstances IgnoreNew `
+                                                         -Priority 4
                 Register-ScheduledTask -TaskName '{{taskLiteral}}' -Action $action `
                                        -Principal $principal -Settings $settings -Force | Out-Null
                 exit 0

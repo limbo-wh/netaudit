@@ -548,6 +548,11 @@
                 <TextBlock Text="RAM:" Style="{StaticResource Lbl}" Margin="16,0,3,0"
                            ToolTip="Использование оперативной памяти."/>
                 <TextBlock x:Name="StatRam" Style="{StaticResource MiniVal}" Foreground="#D4E8A8" MinWidth="90" Text="0 / 0 ГБ"/>
+                <TextBlock Text="GPU:" Style="{StaticResource Lbl}" Margin="16,0,3,0"
+                           ToolTip="Частота ядра видеокарты. Постоянно скачет — так карта и работает. Замерла на одном значении — частота зафиксирована вручную."/>
+                <TextBlock x:Name="StatGpuClock" Style="{StaticResource MiniVal}" Foreground="#9DC3E6" MinWidth="70" Text="—"/>
+                <TextBlock x:Name="StatGpuPower" Style="{StaticResource MiniVal}" Foreground="#9DC3E6" MinWidth="90" Margin="8,0,0,0" Text="—"
+                           ToolTip="Сколько ватт берёт карта и сколько ей разрешено. Значение упёрлось в предел — карта работает вполсилы не из-за игры, а из-за ограничителя мощности."/>
             </StackPanel>
         </Border>
 

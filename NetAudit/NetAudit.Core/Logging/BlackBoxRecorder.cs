@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -31,7 +31,7 @@ public sealed class BlackBoxRecorder : IDisposable
 {
     /// <summary>Заголовок CSV. Менять только вместе с <see cref="BlackBoxReader"/>.</summary>
     private const string Header =
-        "время;аптайм_с;cpu_%;cpu_°C;gpu_%;gpu_°C;озу_ГБ;озу_всего_ГБ;fps;приём_МБ/с;отдача_МБ/с;пинг_мс;потери_%;режим";
+        "время;аптайм_с;cpu_%;cpu_°C;gpu_%;gpu_°C;gpu_Вт;gpu_МГц;озу_ГБ;озу_всего_ГБ;fps;приём_МБ/с;отдача_МБ/с;пинг_мс;потери_%;режим";
 
     /// <summary>Последняя строка штатно закрытого файла. Нет её — сеанс оборвался.</summary>
     internal const string CleanMarker = "# сеанс закрыт штатно";
@@ -112,6 +112,8 @@ public sealed class BlackBoxRecorder : IDisposable
             sb.Append(Num(s.CpuTempC, 1)).Append(';');
             sb.Append(Num(s.GpuPercent, 1)).Append(';');
             sb.Append(Num(s.GpuTempC, 1)).Append(';');
+            sb.Append(Num(s.GpuWatts, 1)).Append(';');
+            sb.Append(Num(s.GpuClockMhz, 0)).Append(';');
             sb.Append(Num(s.RamUsedGb, 2)).Append(';');
             sb.Append(Num(s.RamTotalGb, 2)).Append(';');
             sb.Append(Num(s.Fps, 0)).Append(';');

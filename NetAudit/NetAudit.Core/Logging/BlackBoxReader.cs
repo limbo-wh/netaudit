@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.IO;
 
 namespace NetAudit.Core.Logging;
@@ -10,6 +10,8 @@ public readonly record struct BlackBoxSample(
     double CpuTempC,
     double GpuPercent,
     double GpuTempC,
+    double GpuWatts,
+    double GpuClockMhz,
     double RamUsedGb,
     double Fps,
     double PingMs,
@@ -188,16 +190,30 @@ public static class BlackBoxReader
      || line.StartsWith("# строки", StringComparison.Ordinal)
      || line.StartsWith("# завершение:", StringComparison.Ordinal);
 
+    /// <summary>
+    /// Разбирает строку замера. Столбцов стало шестнадцать: 18.09.2026 между
+    /// температурой карты и объёмом памяти добавились её мощность и частота.
+    /// Старые файлы с четырнадцатью столбцами читаются по-прежнему — мощность
+    /// и частота в них становятся «неизвестно», а не сбивают остальные поля.
+    /// </summary>
     private static BlackBoxSample? ParseSample(string line)
     {
         var p = line.Split(';');
         if (p.Length < 14) return null;
         if (!TimeSpan.TryParse(p[0], CultureInfo.InvariantCulture, out var t)) return null;
 
+        bool wide = p.Length >= 16;
+
+        double watts = wide ? D(p[6]) : double.NaN;
+        double clock = wide ? D(p[7]) : double.NaN;
+        int shift = wide ? 2 : 0;
+
         return new BlackBoxSample(
             t,
-            D(p[2]), D(p[3]), D(p[4]), D(p[5]), D(p[6]), D(p[8]), D(p[11]), D(p[12]),
-            p[13]);
+            D(p[2]), D(p[3]), D(p[4]), D(p[5]),
+            watts, clock,
+            D(p[6 + shift]), D(p[8 + shift]), D(p[11 + shift]), D(p[12 + shift]),
+            p[13 + shift]);
     }
 
     private static double D(string s) =>
