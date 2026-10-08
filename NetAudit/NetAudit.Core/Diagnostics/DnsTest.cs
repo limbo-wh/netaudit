@@ -21,6 +21,9 @@ public sealed class DnsTest : IDiagnosticTest
     private const int Attempts  = 4;
     private const int TimeoutMs = 2000;
 
+    /// <summary>На сколько свой DNS должен отставать от лучшего, чтобы советовать замену.</summary>
+    private const double SlowerThanBestMs = 30;
+
     private static readonly string[] Probe =
     [
         "cloudflare.com",
@@ -34,12 +37,23 @@ public sealed class DnsTest : IDiagnosticTest
         log.Report(TestLine.Dim("Запросы идут напрямую по UDP, минуя кэш Windows"));
         log.Report(TestLine.Empty);
 
-        var servers = BuildServerList();
+        var servers = BuildServerList(out var bogus);
 
         if (servers.Count == 0)
         {
             log.Report(TestLine.Bad("Не удалось определить ни одного DNS-сервера"));
             return;
+        }
+
+        // 0.0.0.0 не сервер, а пустое поле: так его раздают по DHCP роутеры, у которых
+        // не заполнен второй DNS. Мерить его бессмысленно — в таблице выходила строка
+        // со 100% потерь, будто прописанный сервер умер
+        foreach (var ip in bogus)
+        {
+            log.Report(TestLine.Warn($"В настройках адаптера DNS-сервер {ip} — это незаполненное поле, а не сервер."));
+            log.Report(TestLine.Dim("   Обычно его раздаёт роутер, у которого не указан запасной DNS. Если основной"));
+            log.Report(TestLine.Dim("   сервер откажет, запасного не будет. Впишите в роутере второй адрес, например 1.1.1.1."));
+            log.Report(TestLine.Empty);
         }
 
         // Прогрев. Без него первый сервер в списке платит за рекурсивное разрешение
@@ -133,8 +147,12 @@ public sealed class DnsTest : IDiagnosticTest
             return;
         }
 
+        // Порог абсолютный: важна не кратность, а сколько миллисекунд теряет каждое
+        // новое имя. Раньше требовалось «вдвое медленнее и на 20 мс» — роутер со 107 мс
+        // против 54 мс у публичного сервера не дотянул до двойки на десятые доли
+        // и получил «менять смысла нет»
         double bestMine = mine[0].median;
-        if (bestMine > fastest.median * 2 && bestMine - fastest.median > 20)
+        if (bestMine - fastest.median >= SlowerThanBestMs)
         {
             log.Report(TestLine.Warn(
                 $"Ваш DNS медленнее лучшего на {bestMine - fastest.median:F0} мс. " +
@@ -187,7 +205,7 @@ public sealed class DnsTest : IDiagnosticTest
     /// часто — он не дублируется отдельной строкой: в первом прогоне 1.1.1.1 выводился
     /// дважды с разными числами, и это выглядело как поломка теста.
     /// </summary>
-    private static List<(string name, IPAddress ip, bool isMine)> BuildServerList()
+    private static List<(string name, IPAddress ip, bool isMine)> BuildServerList(out List<IPAddress> bogus)
     {
         var known = new (string name, string ip)[]
         {
@@ -198,7 +216,9 @@ public sealed class DnsTest : IDiagnosticTest
         };
 
         var list = new List<(string, IPAddress, bool)>();
-        var mine = SystemResolvers();
+        var all  = SystemResolvers();
+        bogus    = all.Where(IsPlaceholder).ToList();
+        var mine = all.Where(ip => !IsPlaceholder(ip)).ToList();
 
         foreach (var ip in mine)
         {
@@ -239,6 +259,10 @@ public sealed class DnsTest : IDiagnosticTest
         catch { }
         return list;
     }
+
+    /// <summary>Адрес-заглушка вместо сервера: 0.0.0.0 или 255.255.255.255.</summary>
+    private static bool IsPlaceholder(IPAddress ip) =>
+        ip.Equals(IPAddress.Any) || ip.Equals(IPAddress.Broadcast);
 
     private static string RandomName() =>
         $"netaudit-{Guid.NewGuid():N}"[..24] + ".example.com";

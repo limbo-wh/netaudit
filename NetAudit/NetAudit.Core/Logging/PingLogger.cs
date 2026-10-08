@@ -8,6 +8,12 @@ public sealed class PingLogger : IDisposable
     private readonly StreamWriter _writer;
     private readonly object _lock = new();
 
+    /// <summary>
+    /// С какой задержки потока писать подвисание. Пара миллисекунд набегает и
+    /// на здоровой машине — переключение потоков, продолжение после await.
+    /// </summary>
+    public const double StallLogMs = 10;
+
     public PingLogger(string path)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -24,6 +30,11 @@ public sealed class PingLogger : IDisposable
         string line = r.Success
             ? $"{ts:HH:mm:ss.fff}  {r.Target,-15}  {r.RttMs,7:F2} ms"
             : $"{ts:HH:mm:ss.fff}  {r.Target,-15}  TIMEOUT";
+
+        // Подвисание машины пишется рядом с сетевой задержкой, а не вместо неё:
+        // по паре чисел сразу видно, что фриз был, а сеть в этот момент жила
+        if (r.StallMs >= StallLogMs)
+            line += $"  stall {r.StallMs:F0} ms";
 
         lock (_lock)
             _writer.WriteLine(line);

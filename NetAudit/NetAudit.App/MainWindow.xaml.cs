@@ -977,19 +977,30 @@ public partial class MainWindow : Window
         bool isSpike   = r.Success && r.RttMs.HasValue && sessionAvg > 0
                          && r.RttMs.Value > Math.Max(50, sessionAvg * 4);
 
-        if (_settings.LogOnlyImportant && !isTimeout && !isSpike) return;
+        // Подвисание самой машины: сеть ответила быстро, а NetAudit добрался до
+        // ответа намного позже. Именно так выглядят микрофризы в игре
+        bool isStall = r.Success && r.StallMs >= StallMarkMs;
+
+        if (_settings.LogOnlyImportant && !isTimeout && !isSpike && !isStall) return;
 
         // Во время игры обычные строки пинга в лог не идут: восемь строк в секунду
         // никто не прочитает, а потери и спайки — единственное, что там интересно
-        if (_gameMode && _settings.GameModeQuietLog && !isTimeout && !isSpike) return;
+        if (_gameMode && _settings.GameModeQuietLog && !isTimeout && !isSpike && !isStall) return;
 
         string rttText = r.Success ? $"{r.RttMs,7:F2} мс" : "TIMEOUT        ";
-        string tag     = isSpike ? " ⚡SPIKE" : "";
+        string tag     = (isSpike ? " ⚡SPIKE" : "")
+                       + (isStall ? $" ⏸ система подвисла на {r.StallMs:F0} мс" : "");
         string line    = $"{r.Timestamp.LocalDateTime:HH:mm:ss.fff}  {host}  {rttText}{tag}";
 
-        var kind = isTimeout ? LogKind.Timeout : isSpike ? LogKind.Spike : LogKind.Ping;
-        AddLogEntry(line, isTimeout ? BrushRed : isSpike ? BrushYellow : BrushDim, kind, host);
+        var kind = isTimeout ? LogKind.Timeout : isSpike || isStall ? LogKind.Spike : LogKind.Ping;
+        AddLogEntry(line, isTimeout ? BrushRed : isSpike || isStall ? BrushYellow : BrushDim, kind, host);
     }
+
+    /// <summary>
+    /// С какого подвисания помечать строку лога. 50 мс — это три кадра при 60 FPS,
+    /// такой фриз в игре уже заметен глазом.
+    /// </summary>
+    private const double StallMarkMs = 50;
 
     private void AppendEventLog(string text, Brush color)
     {
